@@ -11,4 +11,6 @@ export 'src/exceptions.dart';
 export 'src/key_provider/callback_key_provider.dart';
 export 'src/key_provider/embedded_key_provider.dart';
 export 'src/key_provider/fallback_key_provider.dart';
+export 'src/key_provider/key_cache.dart';
 export 'src/key_provider/key_provider.dart';
+export 'src/key_provider/remote_key_provider.dart';

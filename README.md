@@ -61,8 +61,8 @@ final interpreter = await EncryptedInterpreter.fromAsset(
 |---|---|---|---|
 | `EmbeddedKeyProvider` | Embedded in the app (XOR part-combining helper) | Low | Minimum defense — only stops unzip extraction |
 | `CallbackKeyProvider` | Your callback (license file, custom storage, ...) | Up to you | App-specific policies such as license binding |
+| `RemoteKeyProvider` | HTTPS endpoint, with retries, single-flight and optional caching | Up to your server's gate | Keeping the key out of the binary entirely |
 | `FallbackKeyProvider` | Tries providers in order | — | Combinations like cache → server |
-| (roadmap) SecureStorage / Remote | Keystore / Keychain / server | High | Planned |
 
 ```dart
 // Example: pull the key from a signed license file.
@@ -71,6 +71,31 @@ final provider = CallbackKeyProvider((context) async {
   return license.modelKey;
 });
 ```
+
+### Fetching the key from a server
+
+```dart
+final provider = RemoteKeyProvider(
+  endpoint: Uri.parse('https://keys.example.com/model-key'),
+  headers: (ctx) async => {'Authorization': 'Bearer ${await session.token()}'},
+  cache: InMemoryKeyCache(ttl: const Duration(hours: 12)),
+);
+```
+
+The endpoint receives `keyId` and `label` as query parameters, so one service can
+serve several models and key generations. Responses may be JSON with a base64 `key`
+field, a bare base64 string, or the raw 32 bytes.
+
+> **A server moves the secret out of your binary; it does not decide who deserves it.**
+> That gate is your server's job. On mobile, verifying a Play Integrity / App Attest
+> token before responding is what gives this teeth. On desktop there is no equivalent,
+> so the gate has to be a credential the user holds (license, account login). Without a
+> gate, an attacker just asks your server for the key like any other client.
+
+`KeyCache` is an interface, not a plugin: `InMemoryKeyCache` keeps a fetched key for the
+life of the process and never touches disk. To survive restarts, implement `KeyCache` on
+top of `flutter_secure_storage` or your own channel — the package stays plugin-free so it
+works anywhere `tflite_flutter` does.
 
 ## Threat model
 

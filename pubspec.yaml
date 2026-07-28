@@ -13,6 +13,8 @@ dependencies:
     sdk: flutter
   tflite_flutter: ^0.12.1
   cryptography: ^2.7.0
+  # RemoteKeyProvider transport (pure Dart, works on every platform).
+  http: ^1.2.0
   # CLI-only dependencies (used from the Flutter-free entrypoint).
   args: ^2.6.0
   yaml: ^3.1.2
