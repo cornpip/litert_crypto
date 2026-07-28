@@ -61,7 +61,7 @@ final interpreter = await EncryptedInterpreter.fromAsset(
 |---|---|---|---|
 | `EmbeddedKeyProvider` | Embedded in the app (XOR part-combining helper) | Low | Minimum defense — only stops unzip extraction |
 | `CallbackKeyProvider` | Your callback (license file, custom storage, ...) | Up to you | App-specific policies such as license binding |
-| `RemoteKeyProvider` | HTTPS endpoint, with retries, single-flight and optional caching | Up to your server's gate | Keeping the key out of the binary entirely |
+| `RemoteKeyProvider` | Your fetch callback, with retries, single-flight and optional caching | Up to your server's gate | Keeping the key out of the binary entirely |
 | `FallbackKeyProvider` | Tries providers in order | — | Combinations like cache → server |
 
 ```dart
@@ -74,17 +74,31 @@ final provider = CallbackKeyProvider((context) async {
 
 ### Fetching the key from a server
 
+The transport is yours — this package has no HTTP dependency. Bring `package:http`,
+dio, or a platform channel; `RemoteKeyProvider` adds the retry, single-flight and
+caching plumbing around it.
+
 ```dart
 final provider = RemoteKeyProvider(
-  endpoint: Uri.parse('https://keys.example.com/model-key'),
-  headers: (ctx) async => {'Authorization': 'Bearer ${await session.token()}'},
+  fetch: (ctx) async {
+    final res = await http.get(
+      Uri.parse('https://keys.example.com/model-key'
+          '?keyId=${ctx.keyId}&label=${ctx.label}'),
+      headers: {'Authorization': 'Bearer ${await session.token()}'},
+    );
+    if (res.statusCode == 403) {
+      throw const KeyUnavailableException('not entitled'); // permanent: no retry
+    }
+    if (res.statusCode != 200) throw StateError('HTTP ${res.statusCode}');
+    return decodeKeyBytes(res.bodyBytes); // JSON {"key": base64} / base64 / raw
+  },
   cache: InMemoryKeyCache(ttl: const Duration(hours: 12)),
 );
 ```
 
-The endpoint receives `keyId` and `label` as query parameters, so one service can
-serve several models and key generations. Responses may be JSON with a base64 `key`
-field, a bare base64 string, or the raw 32 bytes.
+The callback receives `keyId` and `label`, so one service can serve several models and
+key generations. Throw `KeyUnavailableException` for permanent failures (rejected auth,
+unknown key) — anything else counts as transient and is retried.
 
 > **A server moves the secret out of your binary; it does not decide who deserves it.**
 > That gate is your server's job. On mobile, verifying a Play Integrity / App Attest

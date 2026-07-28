@@ -2,8 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:litert_crypto/codec.dart';
 import 'package:litert_crypto/src/key_provider/key_cache.dart';
 import 'package:litert_crypto/src/key_provider/key_provider.dart';
@@ -16,74 +14,44 @@ const _context = KeyContext(keyId: 3, label: 'yolo.tflite');
 
 void main() {
   group('RemoteKeyProvider', () {
-    test('fetches a key and passes keyId/label to the endpoint', () async {
-      late Uri seen;
+    test('returns what the fetcher produced, with the request context',
+        () async {
+      KeyContext? seen;
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/model-key'),
-        client: MockClient((request) async {
-          seen = request.url;
-          return http.Response(
-            jsonEncode({'key': base64Encode(_key())}),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }),
+        fetch: (ctx) async {
+          seen = ctx;
+          return _key();
+        },
       );
 
       expect(await provider.getKey(_context), equals(_key()));
-      expect(seen.queryParameters['keyId'], '3');
-      expect(seen.queryParameters['label'], 'yolo.tflite');
+      expect(seen?.keyId, 3);
+      expect(seen?.label, 'yolo.tflite');
     });
 
-    test('sends headers built per request (auth/attestation token)', () async {
-      Map<String, String>? seen;
-      final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
-        headers: (ctx) async => {'Authorization': 'Bearer ${ctx.label}'},
-        client: MockClient((request) async {
-          seen = request.headers;
-          return http.Response(base64Encode(_key()), 200);
-        }),
-      );
-
-      await provider.getKey(_context);
-      expect(seen?['Authorization'], 'Bearer yolo.tflite');
-    });
-
-    test('accepts a raw 32-byte body as well as base64', () async {
-      final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
-        client: MockClient((_) async => http.Response.bytes(_key(), 200)),
-      );
-
-      expect(await provider.getKey(_context), equals(_key()));
-    });
-
-    test('retries server errors, then succeeds', () async {
+    test('retries transient failures, then succeeds', () async {
       var calls = 0;
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
         retryDelay: Duration.zero,
-        client: MockClient((_) async {
+        fetch: (_) async {
           calls++;
-          if (calls < 3) return http.Response('boom', 503);
-          return http.Response(base64Encode(_key()), 200);
-        }),
+          if (calls < 3) throw StateError('HTTP 503');
+          return _key();
+        },
       );
 
       expect(await provider.getKey(_context), equals(_key()));
       expect(calls, 3);
     });
 
-    test('does not retry an auth rejection', () async {
+    test('does not retry a permanent failure', () async {
       var calls = 0;
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
         retryDelay: Duration.zero,
-        client: MockClient((_) async {
+        fetch: (_) async {
           calls++;
-          return http.Response('nope', 403);
-        }),
+          throw const KeyUnavailableException('not entitled');
+        },
       );
 
       await expectLater(
@@ -96,13 +64,12 @@ void main() {
     test('gives up after maxAttempts', () async {
       var calls = 0;
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
         maxAttempts: 2,
         retryDelay: Duration.zero,
-        client: MockClient((_) async {
+        fetch: (_) async {
           calls++;
-          return http.Response('down', 500);
-        }),
+          throw StateError('down');
+        },
       );
 
       await expectLater(
@@ -112,15 +79,14 @@ void main() {
       expect(calls, 2);
     });
 
-    test('concurrent loads share a single request', () async {
+    test('concurrent loads share a single fetch', () async {
       var calls = 0;
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
-        client: MockClient((_) async {
+        fetch: (_) async {
           calls++;
           await Future<void>.delayed(const Duration(milliseconds: 20));
-          return http.Response(base64Encode(_key()), 200);
-        }),
+          return _key();
+        },
       );
 
       final keys = await Future.wait([
@@ -130,7 +96,6 @@ void main() {
       ]);
 
       expect(calls, 1);
-      expect(keys.every((k) => k.every((b) => b == 0)), isFalse);
       for (final k in keys) {
         expect(k, equals(_key()));
       }
@@ -139,12 +104,11 @@ void main() {
     test('serves later loads from the cache', () async {
       var calls = 0;
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
         cache: InMemoryKeyCache(),
-        client: MockClient((_) async {
+        fetch: (_) async {
           calls++;
-          return http.Response(base64Encode(_key()), 200);
-        }),
+          return _key();
+        },
       );
 
       await provider.getKey(_context);
@@ -155,9 +119,8 @@ void main() {
     test('hands out copies so a wiped key does not poison the cache',
         () async {
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
         cache: InMemoryKeyCache(),
-        client: MockClient((_) async => http.Response(base64Encode(_key()), 200)),
+        fetch: (_) async => _key(),
       );
 
       final first = await provider.getKey(_context);
@@ -166,14 +129,51 @@ void main() {
       expect(await provider.getKey(_context), equals(_key()));
     });
 
-    test('malformed payloads surface as KeyUnavailableException', () async {
+    test('caches per keyId and label', () async {
+      final requested = <String>[];
       final provider = RemoteKeyProvider(
-        endpoint: Uri.parse('https://keys.test/k'),
-        client: MockClient((_) async => http.Response('{"nope": 1}', 200)),
+        cache: InMemoryKeyCache(),
+        fetch: (ctx) async {
+          requested.add('${ctx.keyId}:${ctx.label}');
+          return _key(ctx.keyId + 1);
+        },
       );
 
-      await expectLater(
-        provider.getKey(_context),
+      await provider.getKey(const KeyContext(keyId: 1, label: 'a'));
+      await provider.getKey(const KeyContext(keyId: 2, label: 'b'));
+      await provider.getKey(const KeyContext(keyId: 1, label: 'a'));
+
+      expect(requested, ['1:a', '2:b']);
+    });
+  });
+
+  group('decodeKeyBytes', () {
+    test('accepts raw 32 bytes', () {
+      expect(decodeKeyBytes(_key()), equals(_key()));
+    });
+
+    test('accepts a bare base64 string', () {
+      expect(
+        decodeKeyBytes(utf8.encode(base64Encode(_key()))),
+        equals(_key()),
+      );
+    });
+
+    test('accepts JSON with a base64 key field', () {
+      final body = utf8.encode(jsonEncode({'key': base64Encode(_key())}));
+      expect(decodeKeyBytes(body), equals(_key()));
+    });
+
+    test('rejects JSON without a key field', () {
+      expect(
+        () => decodeKeyBytes(utf8.encode('{"nope": 1}')),
+        throwsA(isA<KeyUnavailableException>()),
+      );
+    });
+
+    test('rejects malformed base64', () {
+      expect(
+        () => decodeKeyBytes(utf8.encode('not base64!!')),
         throwsA(isA<KeyUnavailableException>()),
       );
     });
