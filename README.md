@@ -9,9 +9,9 @@ Encrypt and load **LiteRT (TensorFlow Lite / TFLite)** models — a build-time e
 ## The problem
 
 A `.tflite` model bundled in a Flutter app can be **extracted verbatim by unzipping** the
-APK / IPA / desktop install folder. This package encrypts models with AES-256-GCM at build
-time and decrypts them **in memory only** at runtime before handing them to an
-`Interpreter`. The plaintext model never touches the disk.
+APK / IPA / desktop install folder. This package encrypts models at build time and decrypts
+them **in memory only** at runtime before handing them to an `Interpreter`. The plaintext
+model never touches the disk.
 
 ## Usage
 
@@ -77,7 +77,7 @@ final provider = CallbackKeyProvider((context) async {
 | Attack | Defended? |
 |---|---|
 | Extracting the model by unzipping the bundle (APK / install folder) | ✅ Yes — only ciphertext ships |
-| Model tampering (backdoored model injection) | ✅ Detected — GCM authentication tag |
+| Model tampering (backdoored model injection) | ✅ Detected — HMAC-SHA256 tag over header + ciphertext |
 | Copying ciphertext + app to another machine and decrypting offline | Depends on your KeyProvider — Embedded ⚠️ / external key ✅ |
 | Memory dump while the app is running | ❌ No — inherent limit of on-device inference |
 | Patching / reverse engineering the decryption logic | ❌ No — combine with `--obfuscate` |
@@ -85,8 +85,17 @@ final provider = CallbackKeyProvider((context) async {
 ## File format
 
 ```
-[magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [IV (12B)] [ciphertext] [GCM tag (16B)]
+[magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [IV (16B)] [ciphertext] [HMAC-SHA256 tag (32B)]
 ```
+
+AES-256-CTR with encrypt-then-MAC (HMAC-SHA256). The tag covers the header as well as the
+ciphertext, so tampering with the IV or `keyId` is detected. Encryption and MAC keys are
+derived from your 32-byte key with HKDF-SHA256, and the MAC is verified before any
+decryption happens.
+
+**Why not AES-GCM?** Measured on a real 10 MB model: GCM took ~580 ms versus ~180 ms for
+CTR + HMAC in pure Dart, because GHASH gets no hardware acceleration here. Model
+decryption sits on the app's load path, so the 3x difference matters.
 
 `keyId` supports key rotation. Outside Flutter (build scripts, backends) the same format
 is available through the Flutter-free entrypoint `package:litert_crypto/codec.dart`.

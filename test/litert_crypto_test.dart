@@ -48,6 +48,25 @@ void main() {
       );
     });
 
+    test('tampered header (IV) is detected — encrypt-then-MAC covers it',
+        () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+      encrypted[10] ^= 0xFF; // flip a byte inside the IV
+      expect(
+        () => LrtcCodec.decrypt(encrypted, _key()),
+        throwsA(isA<DecryptionFailedException>()),
+      );
+    });
+
+    test('tampered keyId is detected', () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key(), keyId: 1);
+      encrypted[6] = 2; // keyId 1 -> 2
+      expect(
+        () => LrtcCodec.decrypt(encrypted, _key()),
+        throwsA(isA<DecryptionFailedException>()),
+      );
+    });
+
     test('non-32-byte key throws KeyUnavailableException', () async {
       expect(
         () => LrtcCodec.encrypt(_payload(), Uint8List(16)),
