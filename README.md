@@ -42,18 +42,29 @@ dart run litert_crypto encrypt    # batch mode using the config file
 Keep plaintext originals (`models_src/`) outside your assets and out of version control.
 Register only the `.enc` files as Flutter assets.
 
-### 2. Load at runtime — drop-in replacement for `Interpreter.fromAsset()`
+### 2. Load at runtime
 
 ```dart
 import 'package:litert_crypto/litert_crypto.dart';
 
 // Before: Interpreter.fromAsset('assets/tflite_model/model.tflite')
-final interpreter = await EncryptedInterpreter.fromAsset(
+final interpreter = await EncryptedModel.fromAsset(
   'assets/tflite_model/model.tflite.enc',
   keyProvider: EmbeddedKeyProvider.fromParts([keyPartA, keyPartB]),
+  build: Interpreter.fromBuffer,
 );
-// Returns the same Interpreter type — your inference code stays unchanged.
+// You get back exactly what your runtime returns — the inference code that
+// follows stays unchanged.
 ```
+
+**This package depends on no inference runtime.** You hand it the buffer
+constructor, so the same call works with `flutter_litert`, `tflite_flutter`, or
+anything else that accepts model bytes. Nothing here pins you to a runtime
+version, and its bugs are not yours to inherit.
+
+The decrypted buffer is zeroed as soon as `build` returns, since runtimes copy
+the model into their own memory. If yours keeps the buffer alive instead, use
+`EncryptedModel.decryptAsset()` and manage the lifetime (and the wipe) yourself.
 
 ## KeyProvider — the key source is your policy
 

@@ -6,7 +6,7 @@
 /// README before relying on it.
 library;
 
-export 'src/encrypted_interpreter.dart';
+export 'src/encrypted_model.dart';
 export 'src/exceptions.dart';
 export 'src/key_provider/callback_key_provider.dart';
 export 'src/key_provider/embedded_key_provider.dart';

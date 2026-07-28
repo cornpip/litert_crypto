@@ -11,7 +11,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  tflite_flutter: ^0.12.1
   cryptography: ^2.7.0
   # CLI-only dependencies (used from the Flutter-free entrypoint).
   args: ^2.6.0
