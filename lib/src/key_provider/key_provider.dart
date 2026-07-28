@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 /// Context passed to a [KeyProvider] when a key is requested.
 class KeyContext {
-  const KeyContext({required this.keyId, this.source});
+  const KeyContext({required this.keyId, this.source, this.label = ''});
 
   /// Key identifier recorded in the encrypted file header (for key rotation).
   final int keyId;
@@ -11,8 +11,13 @@ class KeyContext {
   /// per-model branching.
   final String? source;
 
+  /// Model label recorded in the envelope. Mixed into key derivation by the
+  /// codec; also useful for picking a key per model.
+  final String label;
+
   @override
-  String toString() => 'KeyContext(keyId: $keyId, source: $source)';
+  String toString() =>
+      'KeyContext(keyId: $keyId, label: "$label", source: $source)';
 }
 
 /// Abstraction over where the decryption key comes from.
@@ -23,6 +28,10 @@ class KeyContext {
 /// point where that policy plugs in.
 abstract interface class KeyProvider {
   /// Returns a 32-byte AES-256 key.
+  ///
+  /// **Return a fresh copy every time.** The returned bytes are zeroed once
+  /// the working subkeys have been derived, so a provider that hands out its
+  /// own retained buffer would destroy its key on first use.
   ///
   /// Implementations should throw `KeyUnavailableException` when the key
   /// cannot be provided.

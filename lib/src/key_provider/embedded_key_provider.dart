@@ -45,6 +45,8 @@ class EmbeddedKeyProvider implements KeyProvider {
 
   final Uint8List _key;
 
+  // A fresh copy per call: the codec zeroes the key it receives.
   @override
-  Future<Uint8List> getKey(KeyContext context) async => _key;
+  Future<Uint8List> getKey(KeyContext context) async =>
+      Uint8List.fromList(_key);
 }

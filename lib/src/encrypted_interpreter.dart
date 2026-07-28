@@ -6,6 +6,7 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 
 import 'crypto/codec.dart';
 import 'crypto/format.dart';
+import 'decrypt_flow.dart';
 import 'key_provider/key_provider.dart';
 
 /// Loads a tflite_flutter [Interpreter] from an encrypted (LRTC) model.
@@ -65,13 +66,18 @@ class EncryptedInterpreter {
     String? source,
   }) async {
     final envelope = LrtcEnvelope.parse(encryptedBytes);
-    final key = await keyProvider.getKey(
-      KeyContext(keyId: envelope.keyId, source: source),
-    );
-    final plain = await LrtcCodec.decryptEnvelope(envelope, key);
-    return Interpreter.fromBuffer(
-      plain,
-      options: options ?? InterpreterOptions(),
-    );
+    final plain =
+        await decryptWithProvider(envelope, keyProvider, source: source);
+    try {
+      return Interpreter.fromBuffer(
+        plain,
+        options: options ?? InterpreterOptions(),
+      );
+    } finally {
+      // tflite_flutter's Model.fromBuffer copies the bytes into native memory,
+      // so the Dart-side plaintext is dead weight the moment it returns —
+      // zero it instead of leaving it for the garbage collector.
+      LrtcCodec.wipe(plain);
+    }
   }
 }

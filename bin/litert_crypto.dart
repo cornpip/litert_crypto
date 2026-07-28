@@ -22,7 +22,10 @@ Future<void> main(List<String> arguments) async {
         ..addOption('key', help: 'Key file path (base64, from keygen)')
         ..addOption('in', help: 'Plaintext model path')
         ..addOption('out', help: 'Encrypted output path')
-        ..addOption('key-id', help: 'uint16 key id for rotation', defaultsTo: '0'),
+        ..addOption('key-id', help: 'uint16 key id for rotation', defaultsTo: '0')
+        ..addOption('label',
+            help: 'Model label bound into key derivation '
+                '(defaults to the source file name)'),
     );
 
   final ArgResults results;
@@ -50,7 +53,7 @@ litert_crypto — encrypt LiteRT (tflite) models
 
 Usage:
   dart run litert_crypto keygen [--out $_defaultKeyPath]
-  dart run litert_crypto encrypt --key <keyfile> --in <model.tflite> --out <model.tflite.enc> [--key-id 0]
+  dart run litert_crypto encrypt --key <keyfile> --in <model.tflite> --out <model.tflite.enc> [--key-id 0] [--label name]
   dart run litert_crypto encrypt          (uses $_configFileName)
 
 Config file ($_configFileName):
@@ -87,7 +90,7 @@ Future<void> _encrypt(ArgResults args) async {
       _fail('encrypt requires --key, --in and --out (or a $_configFileName).');
     }
     final keyId = int.tryParse(args['key-id'] as String) ?? 0;
-    await _encryptOne(keyPath, input, output, keyId);
+    await _encryptOne(keyPath, input, output, keyId, args['label'] as String?);
     return;
   }
 
@@ -117,7 +120,13 @@ Future<void> _encrypt(ArgResults args) async {
       _fail('Each model entry needs `src` and `out`.');
     }
     final keyId = int.tryParse('${entry['key_id'] ?? 0}') ?? 0;
-    await _encryptOne(keyPath, entry['src'] as String, entry['out'] as String, keyId);
+    await _encryptOne(
+      keyPath,
+      entry['src'] as String,
+      entry['out'] as String,
+      keyId,
+      entry['label'] as String?,
+    );
   }
 }
 
@@ -126,6 +135,7 @@ Future<void> _encryptOne(
   String inputPath,
   String outputPath,
   int keyId,
+  String? label,
 ) async {
   final keyFile = File(keyPath);
   if (!keyFile.existsSync()) {
@@ -139,13 +149,20 @@ Future<void> _encryptOne(
   }
   final plain = inputFile.readAsBytesSync();
 
-  final encrypted = await LrtcCodec.encrypt(plain, key, keyId: keyId);
+  final effectiveLabel = label ?? inputPath.split(RegExp(r'[/\\]')).last;
+  final encrypted = await LrtcCodec.encrypt(
+    plain,
+    key,
+    keyId: keyId,
+    label: effectiveLabel,
+  );
   final outFile = File(outputPath);
   outFile.parent.createSync(recursive: true);
   outFile.writeAsBytesSync(encrypted);
   stdout.writeln(
     'Encrypted $inputPath (${plain.length} bytes) '
-    '-> $outputPath (${encrypted.length} bytes, keyId=$keyId)',
+    '-> $outputPath (${encrypted.length} bytes, '
+    'keyId=$keyId, label="$effectiveLabel")',
   );
 }
 

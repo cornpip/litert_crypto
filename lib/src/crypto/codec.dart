@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -15,7 +16,9 @@ import 'format.dart';
 /// lower cost.
 ///
 /// Encryption and MAC keys are derived from the caller's 32-byte key with
-/// HKDF-SHA256, so the same key material is never used for both purposes.
+/// HKDF-SHA256, mixing in the envelope's label so that each model gets its own
+/// working keys. Derived subkeys are destroyed as soon as they are used; the
+/// caller's key buffer is left untouched (see [wipe] to clear it yourself).
 ///
 /// Pure Dart with no Flutter dependency — shared by the CLI (`bin/`) and the
 /// runtime loader.
@@ -25,48 +28,53 @@ class LrtcCodec {
   /// Required length of the master key supplied by a `KeyProvider`.
   static const int keyLength = 32;
 
-  static const List<int> _encInfo = [
-    0x65, 0x6E, 0x63, 0x3A, 0x76, 0x31, // "enc:v1"
-  ];
-  static const List<int> _macInfo = [
-    0x6D, 0x61, 0x63, 0x3A, 0x76, 0x31, // "mac:v1"
-  ];
-
   static final AesCtr _cipher =
       AesCtr.with256bits(macAlgorithm: MacAlgorithm.empty);
   static final Hmac _hmac = Hmac.sha256();
   static final Hkdf _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: keyLength);
 
   /// Encrypts [plain] and returns LRTC-formatted bytes.
+  ///
+  /// [label] identifies the model and is bound into both the envelope and key
+  /// derivation; the same label must be present when decrypting (it travels
+  /// inside the envelope, so callers do not need to track it).
   static Future<Uint8List> encrypt(
     Uint8List plain,
     Uint8List key, {
     int keyId = 0,
+    String label = '',
   }) async {
     _checkKey(key);
     if (keyId < 0 || keyId > 0xFFFF) {
       throw ArgumentError.value(keyId, 'keyId', 'must fit in uint16');
     }
-    final (encKey, macKey) = await _deriveKeys(key);
     final iv = Uint8List.fromList(_cipher.newNonce());
     final header = LrtcEnvelope.buildHeader(
       version: LrtcEnvelope.currentVersion,
       keyId: keyId,
+      label: label,
       iv: iv,
     );
 
-    final box = await _cipher.encrypt(plain, secretKey: encKey, nonce: iv);
-    final cipherText = Uint8List.fromList(box.cipherText);
-    final tag = await _tag(header, cipherText, macKey);
+    final (encKey, macKey) = await _deriveKeys(key, label);
+    try {
+      final box = await _cipher.encrypt(plain, secretKey: encKey, nonce: iv);
+      final cipherText = Uint8List.fromList(box.cipherText);
+      final tag = await _tag(header, cipherText, macKey);
 
-    return LrtcEnvelope(
-      version: LrtcEnvelope.currentVersion,
-      keyId: keyId,
-      header: header,
-      iv: iv,
-      cipherText: cipherText,
-      tag: tag,
-    ).serialize();
+      return LrtcEnvelope(
+        version: LrtcEnvelope.currentVersion,
+        keyId: keyId,
+        label: label,
+        header: header,
+        iv: iv,
+        cipherText: cipherText,
+        tag: tag,
+      ).serialize();
+    } finally {
+      encKey.destroy();
+      macKey.destroy();
+    }
   }
 
   /// Decrypts LRTC-formatted [bytes] and returns the plaintext.
@@ -82,29 +90,56 @@ class LrtcCodec {
     Uint8List key,
   ) async {
     _checkKey(key);
-    final (encKey, macKey) = await _deriveKeys(key);
+    final (encKey, macKey) = await _deriveKeys(key, envelope.label);
+    try {
+      // Verify before decrypting: a wrong key or tampered bytes never reach
+      // the AES step.
+      final expected = await _tag(envelope.header, envelope.cipherText, macKey);
+      if (!constantTimeBytesEquality.equals(expected, envelope.tag)) {
+        throw const DecryptionFailedException(
+          'MAC verification failed — wrong key or tampered data.',
+        );
+      }
 
-    // Verify before decrypting: a wrong key or tampered bytes never reach
-    // the AES step.
-    final expected = await _tag(envelope.header, envelope.cipherText, macKey);
-    if (!constantTimeBytesEquality.equals(expected, envelope.tag)) {
-      throw const DecryptionFailedException(
-        'MAC verification failed — wrong key or tampered data.',
+      final clear = await _cipher.decrypt(
+        SecretBox(envelope.cipherText, nonce: envelope.iv, mac: Mac.empty),
+        secretKey: encKey,
       );
+      return clear is Uint8List ? clear : Uint8List.fromList(clear);
+    } finally {
+      encKey.destroy();
+      macKey.destroy();
     }
-
-    final clear = await _cipher.decrypt(
-      SecretBox(envelope.cipherText, nonce: envelope.iv, mac: Mac.empty),
-      secretKey: encKey,
-    );
-    return clear is Uint8List ? clear : Uint8List.fromList(clear);
   }
 
-  static Future<(SecretKey, SecretKey)> _deriveKeys(Uint8List key) async {
-    final master = SecretKey(key);
-    final encKey = await _hkdf.deriveKey(secretKey: master, info: _encInfo);
-    final macKey = await _hkdf.deriveKey(secretKey: master, info: _macInfo);
-    return (encKey, macKey);
+  /// Overwrites [bytes] with zeros.
+  ///
+  /// Used on plaintext and key material once it is no longer needed, so it does
+  /// not linger in the heap until garbage collection.
+  static void wipe(Uint8List bytes) => bytes.fillRange(0, bytes.length, 0);
+
+  /// Derives independent encryption and MAC keys for [label].
+  ///
+  /// The caller's [key] is not modified — clearing it is the caller's call
+  /// (the loader does exactly that once a model is decrypted).
+  static Future<(SecretKeyData, SecretKeyData)> _deriveKeys(
+    Uint8List key,
+    String label,
+  ) async {
+    final master = SecretKey(Uint8List.fromList(key));
+    try {
+      final encKey = await _hkdf.deriveKey(
+        secretKey: master,
+        info: utf8.encode('litert_crypto:enc:v1:$label'),
+      );
+      final macKey = await _hkdf.deriveKey(
+        secretKey: master,
+        info: utf8.encode('litert_crypto:mac:v1:$label'),
+      );
+      return (await encKey.extract(), await macKey.extract());
+    } finally {
+      master.destroy();
+    }
   }
 
   static Future<Uint8List> _tag(

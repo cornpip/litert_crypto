@@ -5,6 +5,9 @@ import 'key_provider.dart';
 /// Connects app-specific key logic (license file parsing, custom storage,
 /// remote services, ...) through a callback.
 ///
+/// The callback must return a fresh copy of the key material — see
+/// [KeyProvider.getKey].
+///
 /// Example — extracting the key from a signed license file:
 /// ```dart
 /// final provider = CallbackKeyProvider((context) async {

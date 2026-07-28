@@ -79,19 +79,24 @@ final provider = CallbackKeyProvider((context) async {
 | Extracting the model by unzipping the bundle (APK / install folder) | ✅ Yes — only ciphertext ships |
 | Model tampering (backdoored model injection) | ✅ Detected — HMAC-SHA256 tag over header + ciphertext |
 | Copying ciphertext + app to another machine and decrypting offline | Depends on your KeyProvider — Embedded ⚠️ / external key ✅ |
-| Memory dump while the app is running | ❌ No — inherent limit of on-device inference |
+| Memory dump while the app is running | ❌ No — inherent limit of on-device inference (the exposure window is narrowed: key bytes are zeroed once subkeys are derived, and the decrypted buffer is zeroed as soon as the interpreter has copied it) |
 | Patching / reverse engineering the decryption logic | ❌ No — combine with `--obfuscate` |
 
 ## File format
 
 ```
-[magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [IV (16B)] [ciphertext] [HMAC-SHA256 tag (32B)]
+[magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [labelLen (1B)] [label] [IV (16B)] [ciphertext] [HMAC-SHA256 tag (32B)]
 ```
 
-AES-256-CTR with encrypt-then-MAC (HMAC-SHA256). The tag covers the header as well as the
-ciphertext, so tampering with the IV or `keyId` is detected. Encryption and MAC keys are
-derived from your 32-byte key with HKDF-SHA256, and the MAC is verified before any
-decryption happens.
+AES-256-CTR with encrypt-then-MAC (HMAC-SHA256). The tag covers the whole header as well
+as the ciphertext, so tampering with the IV, `keyId`, or label is detected. Encryption and
+MAC keys are derived from your 32-byte key with HKDF-SHA256, and the MAC is verified before
+any decryption happens.
+
+The **label** (defaulting to the source file name) identifies the model and is mixed into
+key derivation, so two models encrypted with the same master key get different working
+keys — leaking one model's derived key does not unlock the others. It travels inside the
+envelope, so decryption needs nothing but the master key.
 
 **Why not AES-GCM?** Measured on a real 10 MB model: GCM took ~580 ms versus ~180 ms for
 CTR + HMAC in pure Dart, because GHASH gets no hardware acceleration here. Model

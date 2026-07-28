@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:litert_crypto/codec.dart';
+import 'package:litert_crypto/src/decrypt_flow.dart';
 import 'package:litert_crypto/src/key_provider/callback_key_provider.dart';
 import 'package:litert_crypto/src/key_provider/embedded_key_provider.dart';
 import 'package:litert_crypto/src/key_provider/fallback_key_provider.dart';
@@ -41,7 +42,8 @@ void main() {
 
     test('tampered ciphertext throws DecryptionFailedException', () async {
       final encrypted = await LrtcCodec.encrypt(_payload(), _key());
-      encrypted[LrtcEnvelope.headerLength] ^= 0xFF; // flip first ciphertext byte
+      // flip the first ciphertext byte (header is fixed-size for an empty label)
+      encrypted[LrtcEnvelope.fixedHeaderLength + LrtcEnvelope.ivLength] ^= 0xFF;
       expect(
         () => LrtcCodec.decrypt(encrypted, _key()),
         throwsA(isA<DecryptionFailedException>()),
@@ -72,6 +74,96 @@ void main() {
         () => LrtcCodec.encrypt(_payload(), Uint8List(16)),
         throwsA(isA<KeyUnavailableException>()),
       );
+    });
+  });
+
+  group('per-model key separation (label)', () {
+    test('label round-trips through the envelope', () async {
+      final encrypted =
+          await LrtcCodec.encrypt(_payload(), _key(), label: 'yolo.tflite');
+      expect(LrtcEnvelope.parse(encrypted).label, 'yolo.tflite');
+      expect(await LrtcCodec.decrypt(encrypted, _key()), equals(_payload()));
+    });
+
+    test('same key + different labels produce different working keys',
+        () async {
+      // Re-labelling one model's envelope must not decrypt under the derived
+      // key of another: the label is bound into HKDF and authenticated.
+      final a = await LrtcCodec.encrypt(_payload(), _key(), label: 'model-a');
+      final parsed = LrtcEnvelope.parse(a);
+      final forged = LrtcEnvelope(
+        version: parsed.version,
+        keyId: parsed.keyId,
+        label: 'model-b',
+        header: LrtcEnvelope.buildHeader(
+          version: parsed.version,
+          keyId: parsed.keyId,
+          label: 'model-b',
+          iv: parsed.iv,
+        ),
+        iv: parsed.iv,
+        cipherText: parsed.cipherText,
+        tag: parsed.tag,
+      ).serialize();
+
+      expect(
+        () => LrtcCodec.decrypt(forged, _key()),
+        throwsA(isA<DecryptionFailedException>()),
+      );
+    });
+
+    test('an over-long label is rejected', () async {
+      expect(
+        () => LrtcCodec.encrypt(_payload(), _key(), label: 'x' * 256),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+  });
+
+  group('key hygiene', () {
+    test('the codec does not mutate the caller\'s key buffer', () async {
+      final key = _key();
+      final encrypted = await LrtcCodec.encrypt(_payload(), key);
+      expect(key, equals(_key()), reason: 'key must be reusable');
+      expect(await LrtcCodec.decrypt(encrypted, key), equals(_payload()));
+      expect(key, equals(_key()));
+    });
+
+    test('decryptWithProvider zeroes the key it received', () async {
+      Uint8List? handedOut;
+      final provider = CallbackKeyProvider((_) async {
+        handedOut = _key();
+        return handedOut!;
+      });
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+
+      final plain = await decryptWithProvider(
+        LrtcEnvelope.parse(encrypted),
+        provider,
+      );
+
+      expect(plain, equals(_payload()));
+      expect(handedOut!.every((b) => b == 0), isTrue,
+          reason: 'the loader must clear the key after use');
+    });
+
+    test('EmbeddedKeyProvider survives repeated use (returns copies)',
+        () async {
+      final provider = EmbeddedKeyProvider(_key());
+      const context = KeyContext(keyId: 0);
+
+      final encrypted =
+          await LrtcCodec.encrypt(_payload(), await provider.getKey(context));
+      final decrypted =
+          await LrtcCodec.decrypt(encrypted, await provider.getKey(context));
+
+      expect(decrypted, equals(_payload()));
+    });
+
+    test('wipe() zeroes a buffer', () {
+      final bytes = _payload(64);
+      LrtcCodec.wipe(bytes);
+      expect(bytes.every((b) => b == 0), isTrue);
     });
   });
 
