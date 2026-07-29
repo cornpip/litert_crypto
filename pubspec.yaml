@@ -1,12 +1,28 @@
 name: litert_crypto
-description: "Encrypt and load LiteRT (TensorFlow Lite / TFLite) models. Build-time encryption CLI plus in-memory decryption loader with pluggable key providers."
+description: "Stop shipping your .tflite in plain sight. Encrypt LiteRT (TFLite) models at build time and decrypt them in memory only — with pluggable key providers."
 version: 0.1.0
 # NOTE: create this repository before the first real publish.
 repository: https://github.com/cornpip/litert_crypto
 
+# Floor verified: analyze + full test suite pass on Flutter 3.32.7 / Dart 3.8.1.
 environment:
   sdk: ^3.8.0
-  flutter: ">=3.22.0"
+  flutter: ">=3.32.0"
+
+topics:
+  - litert
+  - tflite
+  - encryption
+  - security
+
+# No web: dart:io aside, the threat model needs a bundle boundary — on the web
+# the code, the assets, and any embedded key are all served in the clear.
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  windows:
 
 dependencies:
   flutter:
