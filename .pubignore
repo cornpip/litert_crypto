@@ -11,6 +11,16 @@ models_src/
 # Design docs stay in the repository; the README links to them there.
 litert_crypto_docs/
 
+# Example app: publish only what the pub.dev Example tab and readers need
+# (lib/, pubspec, README, the encrypted asset, the config). Runners and
+# plaintext inputs stay in the repository.
+example/android/
+example/windows/
+example/test/
+example/models_src/
+example/build/
+example/.secrets/
+
 # Development-only files.
 test/
 build/

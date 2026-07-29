@@ -1,0 +1,24 @@
+name: litert_crypto_example
+description: Runnable demo for litert_crypto — decrypts a bundled encrypted asset in memory.
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  litert_crypto:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # Only the encrypted output ships; the plaintext source stays in models_src/.
+    - assets/tflite_model/demo_model.bin.enc

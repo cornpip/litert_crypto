@@ -1,0 +1,10 @@
+# litert_crypto — model encryption config for the example app.
+# Paths are relative to this file. Run: dart run litert_crypto encrypt
+litert_crypto:
+  key_file: .secrets/model_master.key
+  key_parts_out: lib/model_master_key.dart
+
+  models:
+    # demo_model.bin stands in for a real .tflite — the codec encrypts any file.
+    - src: models_src/demo_model.bin
+      out: assets/tflite_model/demo_model.bin.enc
