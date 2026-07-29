@@ -230,6 +230,18 @@ void main() {
       expect(await provider.getKey(context), equals(_key()));
     });
 
+    test('FallbackKeyProvider falls through on unexpected exceptions too',
+        () async {
+      // A transient I/O failure (not a KeyUnavailableException) in an early
+      // provider must not block a later provider that would succeed.
+      final failing = CallbackKeyProvider(
+        (_) async => throw const FormatException('corrupt local cache'),
+      );
+      final provider =
+          FallbackKeyProvider([failing, EmbeddedKeyProvider(_key())]);
+      expect(await provider.getKey(context), equals(_key()));
+    });
+
     test('FallbackKeyProvider throws when all fail', () async {
       final failing = CallbackKeyProvider(
         (_) async => throw const KeyUnavailableException('nope'),
