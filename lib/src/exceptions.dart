@@ -22,7 +22,8 @@ final class KeyUnavailableException extends LitertCryptoException {
   const KeyUnavailableException(super.message);
 }
 
-/// Decryption failed — wrong key or tampered ciphertext (GCM tag mismatch).
+/// Decryption failed — wrong key or tampered ciphertext (HMAC verification
+/// failed).
 final class DecryptionFailedException extends LitertCryptoException {
   const DecryptionFailedException(super.message);
 }

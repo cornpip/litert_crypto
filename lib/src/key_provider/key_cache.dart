@@ -40,7 +40,7 @@ class InMemoryKeyCache implements KeyCache {
     final entry = _entries[cacheKey];
     if (entry == null) return null;
     if (entry.expiresAt != null && !_clock().isBefore(entry.expiresAt!)) {
-      _entries.remove(cacheKey);
+      _entries.remove(cacheKey)?.wipe();
       return null;
     }
     return Uint8List.fromList(entry.key);
@@ -48,6 +48,7 @@ class InMemoryKeyCache implements KeyCache {
 
   @override
   Future<void> write(String cacheKey, Uint8List key) async {
+    _entries.remove(cacheKey)?.wipe();
     _entries[cacheKey] = _Entry(
       Uint8List.fromList(key),
       ttl == null ? null : _clock().add(ttl!),
@@ -55,7 +56,12 @@ class InMemoryKeyCache implements KeyCache {
   }
 
   @override
-  Future<void> clear() async => _entries.clear();
+  Future<void> clear() async {
+    for (final entry in _entries.values) {
+      entry.wipe();
+    }
+    _entries.clear();
+  }
 }
 
 class _Entry {
@@ -63,4 +69,8 @@ class _Entry {
 
   final Uint8List key;
   final DateTime? expiresAt;
+
+  /// Zeroes the stored key so a dropped entry does not keep the secret in the
+  /// heap until garbage collection.
+  void wipe() => key.fillRange(0, key.length, 0);
 }

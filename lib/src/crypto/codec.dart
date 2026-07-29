@@ -105,7 +105,12 @@ class LrtcCodec {
         SecretBox(envelope.cipherText, nonce: envelope.iv, mac: Mac.empty),
         secretKey: encKey,
       );
-      return clear is Uint8List ? clear : Uint8List.fromList(clear);
+      if (clear is Uint8List) return clear;
+      // Copying leaves the cipher's own list behind; zero it so only the
+      // returned buffer holds the plaintext.
+      final copied = Uint8List.fromList(clear);
+      clear.fillRange(0, clear.length, 0);
+      return copied;
     } finally {
       encKey.destroy();
       macKey.destroy();
