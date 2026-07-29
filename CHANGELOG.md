@@ -8,5 +8,5 @@ Initial draft release.
 * No inference-runtime dependency: works with `flutter_litert`, `tflite_flutter`, or any other runtime
 * `KeyProvider` interface with `EmbeddedKeyProvider` (XOR part-combining helper), `CallbackKeyProvider`, `FallbackKeyProvider`, and `RemoteKeyProvider` (transport-agnostic fetch callback with retries, single-flight, and a pluggable `KeyCache`; `InMemoryKeyCache` and a `decodeKeyBytes` payload helper included)
 * No HTTP or platform-plugin dependencies: the package stays pure Dart and runs wherever tflite_flutter does
-* CLI: `dart run litert_crypto keygen | encrypt` (direct arguments or a `litert_crypto.yaml` config)
+* CLI: `dart run litert_crypto keygen | encrypt` (direct arguments or a `litert_crypto.yaml` config). With `key_parts_out`, `encrypt` also generates the Dart source for `EmbeddedKeyProvider`, so the embedded key cannot drift from the key the models were encrypted with; it rewrites that file only when the key changed
 * Exception hierarchy: `InvalidFormatException` / `KeyUnavailableException` / `DecryptionFailedException`
