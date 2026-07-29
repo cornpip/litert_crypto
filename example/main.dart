@@ -2,7 +2,7 @@
 //
 // Build-time preparation:
 //   dart run litert_crypto keygen
-//   dart run litert_crypto encrypt --key .secrets/model.key \
+//   dart run litert_crypto encrypt --key .secrets/model_master.key \
 //     --in models_src/model.tflite --out assets/tflite_model/model.tflite.enc
 //   (register only the .enc file as a Flutter asset)
 

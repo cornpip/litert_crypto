@@ -7,7 +7,7 @@ import 'package:args/args.dart';
 import 'package:litert_crypto/codec.dart';
 import 'package:yaml/yaml.dart';
 
-const _defaultKeyPath = '.secrets/model.key';
+const _defaultKeyPath = '.secrets/model_master.key';
 const _configFileName = 'litert_crypto.yaml';
 const _defaultKeyPartsSymbol = 'buildModelKeyProvider';
 const _fingerprintMarker = 'key-fingerprint: ';
@@ -249,7 +249,7 @@ litert_crypto:
   # Optional: generated Dart source rebuilding the key from XOR parts, for
   # EmbeddedKeyProvider. Remove this line if the key does not ship with the app
   # (license file, server, secure storage) — see the README on where keys live.
-  key_parts_out: lib/model_key.dart
+  key_parts_out: lib/model_master_key.dart
 
   models:
     # `src` stays out of your assets so the plaintext is never bundled;
