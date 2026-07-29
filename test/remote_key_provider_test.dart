@@ -129,6 +129,47 @@ void main() {
       expect(await provider.getKey(_context), equals(_key()));
     });
 
+    test('a wrong-length payload fails without poisoning the cache', () async {
+      var calls = 0;
+      final cache = InMemoryKeyCache();
+      final provider = RemoteKeyProvider(
+        cache: cache,
+        retryDelay: Duration.zero,
+        fetch: (_) async {
+          calls++;
+          // e.g. an error page served with HTTP 200
+          return Uint8List.fromList(utf8.encode('<html>oops</html>'));
+        },
+      );
+
+      await expectLater(
+        provider.getKey(_context),
+        throwsA(isA<KeyUnavailableException>()),
+      );
+      expect(calls, 1, reason: 'a non-key payload is a permanent failure');
+      expect(await cache.read('3:yolo.tflite'), isNull,
+          reason: 'the bad payload must never reach the cache');
+    });
+
+    test('a wrong-length cache entry is treated as a miss and re-fetched',
+        () async {
+      var calls = 0;
+      final cache = InMemoryKeyCache();
+      // Simulate a poisoned/tampered persistent store.
+      await cache.write('3:yolo.tflite', Uint8List(16));
+
+      final provider = RemoteKeyProvider(
+        cache: cache,
+        fetch: (_) async {
+          calls++;
+          return _key();
+        },
+      );
+
+      expect(await provider.getKey(_context), equals(_key()));
+      expect(calls, 1, reason: 'the invalid entry must not be served');
+    });
+
     test('caches per keyId and label', () async {
       final requested = <String>[];
       final provider = RemoteKeyProvider(
@@ -167,6 +208,13 @@ void main() {
     test('rejects JSON without a key field', () {
       expect(
         () => decodeKeyBytes(utf8.encode('{"nope": 1}')),
+        throwsA(isA<KeyUnavailableException>()),
+      );
+    });
+
+    test('rejects malformed JSON', () {
+      expect(
+        () => decodeKeyBytes(utf8.encode('{"key": broken')),
         throwsA(isA<KeyUnavailableException>()),
       );
     });

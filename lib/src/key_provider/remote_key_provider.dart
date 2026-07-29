@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../crypto/codec.dart';
 import '../exceptions.dart';
 import 'key_cache.dart';
 import 'key_provider.dart';
@@ -78,8 +79,10 @@ class RemoteKeyProvider implements KeyProvider {
   Future<Uint8List> getKey(KeyContext context) async {
     final cacheKey = '${context.keyId}:${context.label}';
 
+    // A wrong-length entry (an older poisoned cache, or a tampered persistent
+    // store) is treated as a miss, so a re-fetch can heal it.
     final cached = await cache?.read(cacheKey);
-    if (cached != null) return cached;
+    if (cached != null && cached.length == LrtcCodec.keyLength) return cached;
 
     final pending = _inFlight[cacheKey] ??=
         _fetchWithRetry(context, cacheKey).whenComplete(() {
@@ -96,6 +99,14 @@ class RemoteKeyProvider implements KeyProvider {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         final key = await fetch(context);
+        // Validate before the key can reach the cache: a bad payload written
+        // there would poison every later load until the entry expires.
+        if (key.length != LrtcCodec.keyLength) {
+          throw KeyUnavailableException(
+            'Fetcher returned ${key.length} bytes for $cacheKey; expected '
+            '${LrtcCodec.keyLength}. The response is probably not a key.',
+          );
+        }
         await cache?.write(cacheKey, key);
         return key;
       } on KeyUnavailableException {
@@ -129,7 +140,14 @@ Uint8List decodeKeyBytes(List<int> body) {
   }
 
   if (text.startsWith('{')) {
-    final decoded = jsonDecode(text);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(text);
+    } on FormatException catch (e) {
+      throw KeyUnavailableException(
+        'Key payload looks like JSON but does not parse: $e',
+      );
+    }
     final value = decoded is Map ? decoded['key'] : null;
     if (value is! String) {
       throw const KeyUnavailableException(
