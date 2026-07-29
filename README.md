@@ -43,7 +43,9 @@ dart run litert_crypto encrypt    # batch mode using the config file
 ```
 
 Keep plaintext originals (`models_src/`) outside your assets so they are never bundled.
-Register only the `.enc` files as Flutter assets.
+Register only the `.enc` files as Flutter assets. Whether to commit those originals is your
+call — a private repository usually makes it the practical choice, but it does mean anyone
+with repository access has the models regardless of encryption.
 
 #### `key_parts_out` — generated key source for `EmbeddedKeyProvider`
 
@@ -60,6 +62,10 @@ KeyProvider buildModelKeyProvider() => EmbeddedKeyProvider.fromParts([_partA, _p
 The generated file records a fingerprint of the key it was built from, so re-running
 `encrypt` rewrites it only when the key actually changed — no churn in your diffs. Use
 `key_parts_symbol` to rename the generated function (default `buildModelKeyProvider`).
+
+Because that file is committed source, **the key is recoverable from the repository** by
+XOR-ing the parts — the split only keeps a finished key out of the shipped binary. Your
+repository is part of the trust boundary as long as the key lives in the app.
 
 Skip this option entirely if the key does not live in the app (see
 [Where the key lives](#where-the-key-lives--the-only-thing-that-changes-the-strength)).
@@ -191,7 +197,7 @@ unknown key) — anything else counts as transient and is retried.
 `KeyCache` is an interface, not a plugin: `InMemoryKeyCache` keeps a fetched key for the
 life of the process and never touches disk. To survive restarts, implement `KeyCache` on
 top of `flutter_secure_storage` or your own channel — the package stays plugin-free so it
-works anywhere `tflite_flutter` does.
+works anywhere your inference runtime does.
 
 ## Threat model
 
@@ -202,12 +208,24 @@ works anywhere `tflite_flutter` does.
 | Copying ciphertext + app to another machine and decrypting offline | Depends on your KeyProvider — Embedded ⚠️ / external key ✅ |
 | Memory dump while the app is running | ❌ No — inherent limit of on-device inference (the exposure window is narrowed: key bytes are zeroed once subkeys are derived, and the decrypted buffer is zeroed as soon as the interpreter has copied it) |
 | Patching / reverse engineering the decryption logic | ❌ No — combine with `--obfuscate` |
+| **Access to your source repository** | ❌ No, if the key ships with the app — see below |
+
+The last row is the one teams overlook. With `EmbeddedKeyProvider` the generated key parts
+are committed source, and the plaintext models usually sit in the repository too, so
+**repository access is model access** — no reverse engineering required, and that access is
+often granted more widely than the signed build is. Treat the repository as inside your
+trust boundary, or move the key out of the app (see
+[Where the key lives](#where-the-key-lives--the-only-thing-that-changes-the-strength)).
 
 ## File format
 
 ```
 [magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [labelLen (1B)] [label] [IV (16B)] [ciphertext] [HMAC-SHA256 tag (32B)]
 ```
+
+The **entire model file** is encrypted, first byte to last — graph structure and weights
+alike. What ships is the envelope above, and nothing of the original `.tflite` (not even
+its `TFL3` identifier) survives in the clear.
 
 AES-256-CTR with encrypt-then-MAC (HMAC-SHA256). The tag covers the whole header as well
 as the ciphertext, so tampering with the IV, `keyId`, or label is detected. Encryption and
@@ -219,6 +237,11 @@ key derivation, so two models encrypted with the same master key get different w
 keys — leaking one model's derived key does not unlock the others. It travels inside the
 envelope, so decryption needs nothing but the master key.
 
+Note that the header is **plaintext** — authenticated, not hidden. Anyone opening the file
+reads the label, so by default the original model file name is visible inside the
+ciphertext. That usually matches what the asset path already reveals; if the name itself
+gives something away, pass an opaque `label:` instead.
+
 **Why not AES-GCM?** Measured on a real 10 MB model: GCM took ~580 ms versus ~180 ms for
 CTR + HMAC in pure Dart, because GHASH gets no hardware acceleration here. Model
 decryption sits on the app's load path, so the 3x difference matters.
@@ -228,6 +251,21 @@ is available through the Flutter-free entrypoint `package:litert_crypto/codec.da
 
 ## Roadmap
 
-- 0.0.1 (current): core format/codec, `EncryptedInterpreter`, Embedded/Callback/Fallback providers, CLI `keygen` / `encrypt`
-- Next: `SecureStorageKeyProvider`, `RemoteKeyProvider`, CLI `check` (plaintext-bundle guard), example app
-- Under consideration: flutter_litert runtime support, native-accelerated decryption (cryptography_flutter)
+**0.0.1 (current)** — LRTC format and codec, `EncryptedModel` loader with no runtime
+dependency, `Embedded`/`Callback`/`Remote`/`Fallback` key providers, `KeyCache`, and the
+`keygen` / `encrypt` CLI including generated key-part source.
+
+**Next**
+
+- `check` CLI: fail a build when a plaintext model is still registered as an asset
+- A `KeyCache` recipe over `flutter_secure_storage`, kept out of this package so it stays
+  plugin-free
+- Optional isolate decryption — a 10 MB model costs ~500 ms on a mid-range phone, which
+  blocks the UI thread on the load path
+
+**Decided against**
+
+- A `SecureStorageKeyProvider` in this package: it would drag platform plugins into a pure
+  Dart package. `KeyCache` is the seam instead.
+- Bundling attestation (Play Integrity / App Attest) or license verification: those are
+  policy, and policy belongs to the app.
