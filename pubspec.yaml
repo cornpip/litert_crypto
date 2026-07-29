@@ -1,6 +1,6 @@
 name: litert_crypto
 description: "Encrypt and load LiteRT (TensorFlow Lite / TFLite) models. Build-time encryption CLI plus in-memory decryption loader with pluggable key providers."
-version: 0.0.1
+version: 0.1.0
 # NOTE: create this repository before the first real publish.
 repository: https://github.com/cornpip/litert_crypto
 

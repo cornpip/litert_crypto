@@ -19,6 +19,11 @@ Future<void> main(List<String> arguments) async {
       ArgParser()..addOption('out', help: 'Key file path', defaultsTo: _defaultKeyPath),
     )
     ..addCommand(
+      'init',
+      ArgParser()
+        ..addOption('out', help: 'Config path', defaultsTo: _configFileName),
+    )
+    ..addCommand(
       'encrypt',
       ArgParser()
         ..addOption('key', help: 'Key file path (base64, from keygen)')
@@ -27,7 +32,10 @@ Future<void> main(List<String> arguments) async {
         ..addOption('key-id', help: 'uint16 key id for rotation', defaultsTo: '0')
         ..addOption('label',
             help: 'Model label bound into key derivation '
-                '(defaults to the source file name)'),
+                '(defaults to the output file name)')
+        ..addOption('config',
+            help: 'Config path (default: nearest $_configFileName '
+                'at or above the working directory)'),
     );
 
   final ArgResults results;
@@ -43,6 +51,8 @@ Future<void> main(List<String> arguments) async {
   }
 
   switch (command.name) {
+    case 'init':
+      await _init(command);
     case 'keygen':
       await _keygen(command);
     case 'encrypt':
@@ -54,17 +64,14 @@ String _usage(ArgParser parser) => '''
 litert_crypto — encrypt LiteRT (tflite) models
 
 Usage:
+  dart run litert_crypto init [--out $_configFileName]
   dart run litert_crypto keygen [--out $_defaultKeyPath]
+  dart run litert_crypto encrypt [--config <path>]
   dart run litert_crypto encrypt --key <keyfile> --in <model.tflite> --out <model.tflite.enc> [--key-id 0] [--label name]
-  dart run litert_crypto encrypt          (uses $_configFileName)
 
-Config file ($_configFileName):
-  litert_crypto:
-    key_file: $_defaultKeyPath
-    key_parts_out: lib/model_key.dart   # optional: generated EmbeddedKeyProvider source
-    models:
-      - src: models_src/model.tflite
-        out: assets/tflite_model/model.tflite.enc
+Without --key/--in/--out, encrypt reads $_configFileName — the one given by
+--config, otherwise the nearest one at or above the working directory. Paths
+inside it are relative to the config file. `init` writes a starter config.
 ''';
 
 Future<void> _keygen(ArgResults args) async {
@@ -79,8 +86,22 @@ Future<void> _keygen(ArgResults args) async {
   );
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(base64Encode(key));
+  _restrictToOwner(outPath);
   stdout.writeln('Wrote ${LrtcCodec.keyLength}-byte key: $outPath');
   stdout.writeln('Keep it out of version control (add to .gitignore).');
+}
+
+/// Best-effort `chmod 600`: a master key file must not be world-readable,
+/// which is what the default umask would leave it as.
+void _restrictToOwner(String path) {
+  if (Platform.isWindows) return;
+  final result = Process.runSync('chmod', ['600', path]);
+  if (result.exitCode != 0) {
+    stdout.writeln(
+      'Warning: could not restrict permissions on $path '
+      '(chmod exited with ${result.exitCode}) — do it manually.',
+    );
+  }
 }
 
 Future<void> _encrypt(ArgResults args) async {
@@ -92,28 +113,26 @@ Future<void> _encrypt(ArgResults args) async {
     if (input == null || output == null || keyPath == null) {
       _fail('encrypt requires --key, --in and --out (or a $_configFileName).');
     }
-    final keyId = int.tryParse(args['key-id'] as String) ?? 0;
+    final keyId = _parseKeyId(args['key-id'] as String, '--key-id');
     await _encryptOne(keyPath, input, output, keyId, args['label'] as String?);
     return;
   }
 
   // Config file mode.
-  final configFile = File(_configFileName);
-  if (!configFile.existsSync()) {
-    _fail('No arguments and no $_configFileName found.\n\n'
-        'Create one:\n'
-        'litert_crypto:\n'
-        '  key_file: $_defaultKeyPath\n'
-        '  models:\n'
-        '    - src: models_src/model.tflite\n'
-        '      out: assets/tflite_model/model.tflite.enc');
-  }
+  final configFile = _findConfig(args['config'] as String?);
+  final configDir = configFile.parent.path;
+
   final doc = loadYaml(configFile.readAsStringSync());
   final section = doc is YamlMap ? doc['litert_crypto'] : null;
   if (section is! YamlMap) {
-    _fail('$_configFileName must contain a top-level `litert_crypto:` section.');
+    _fail('${configFile.path} must contain a top-level `litert_crypto:` section.');
   }
-  final keyPath = section['key_file'] as String? ?? _defaultKeyPath;
+
+  // Paths are relative to the config file, so the command works from any
+  // subdirectory of the project.
+  String at(String path) => _resolve(configDir, path);
+
+  final keyPath = at(section['key_file'] as String? ?? _defaultKeyPath);
 
   // Keep the embedded key source in step with the key file, so the two can
   // never drift apart.
@@ -121,7 +140,7 @@ Future<void> _encrypt(ArgResults args) async {
   if (keyPartsOut != null) {
     await _writeKeyParts(
       keyPath,
-      keyPartsOut,
+      at(keyPartsOut),
       section['key_parts_symbol'] as String? ?? _defaultKeyPartsSymbol,
     );
   }
@@ -134,15 +153,122 @@ Future<void> _encrypt(ArgResults args) async {
     if (entry is! YamlMap || entry['src'] == null || entry['out'] == null) {
       _fail('Each model entry needs `src` and `out`.');
     }
-    final keyId = int.tryParse('${entry['key_id'] ?? 0}') ?? 0;
+    final keyId =
+        _parseKeyId('${entry['key_id'] ?? 0}', '`key_id` for ${entry['src']}');
     await _encryptOne(
       keyPath,
-      entry['src'] as String,
-      entry['out'] as String,
+      at(entry['src'] as String),
+      at(entry['out'] as String),
       keyId,
       entry['label'] as String?,
     );
   }
+}
+
+/// Key ids identify keys across rotations, so a typo must not silently
+/// become "key 0" — that mislabels the file for every later key lookup.
+int _parseKeyId(String raw, String what) {
+  final value = int.tryParse(raw);
+  if (value == null || value < 0 || value > 0xFFFF) {
+    _fail('Invalid $what: "$raw" (expected an integer 0-65535).');
+  }
+  return value;
+}
+
+/// Locates the config: an explicit `--config`, otherwise the nearest
+/// `litert_crypto.yaml` at or above the working directory.
+File _findConfig(String? explicitPath) {
+  if (explicitPath != null) {
+    final file = File(explicitPath);
+    if (!file.existsSync()) _fail('Config not found: $explicitPath');
+    return file;
+  }
+
+  return _findConfigOrNull(Directory.current) ??
+      _fail(
+        'No arguments and no $_configFileName found here or in any parent '
+        'directory.\n\nCreate one with:  dart run litert_crypto init',
+      );
+}
+
+/// Nearest config at or above [start], or null when there is none.
+File? _findConfigOrNull(Directory start) {
+  var dir = start;
+  while (true) {
+    final candidate = File('${dir.path}/$_configFileName');
+    if (candidate.existsSync()) return candidate;
+    final parent = dir.parent;
+    if (parent.path == dir.path) return null;
+    dir = parent;
+  }
+}
+
+String _resolve(String baseDir, String path) {
+  final isAbsolute = path.startsWith('/') || RegExp(r'^[A-Za-z]:').hasMatch(path);
+  return isAbsolute ? path : '$baseDir/$path';
+}
+
+/// Writes a starter config next to the project so `encrypt` has something to
+/// read.
+Future<void> _init(ArgResults args) async {
+  final outPath = args['out'] as String;
+  final file = File(outPath);
+  if (file.existsSync()) {
+    _fail('Refusing to overwrite existing config: $outPath');
+  }
+
+  if (file.uri.pathSegments.last != _configFileName) {
+    // encrypt only auto-discovers files named litert_crypto.yaml.
+    stdout
+      ..writeln('Note: encrypt will not find this file on its own — pass it')
+      ..writeln('explicitly:  dart run litert_crypto encrypt --config $outPath')
+      ..writeln('');
+  } else {
+    // A config above this one would otherwise be shadowed silently, since
+    // `encrypt` takes the nearest match.
+    final existing = _findConfigOrNull(file.absolute.parent.parent);
+    if (existing != null) {
+      stdout
+        ..writeln('Note: a config already exists at ${existing.path}.')
+        ..writeln('Once written, $outPath takes precedence for commands run')
+        ..writeln('from its directory or below, because encrypt uses the')
+        ..writeln('nearest one. Cancel with Ctrl-C if you meant to use the')
+        ..writeln('existing config instead.')
+        ..writeln('');
+    }
+  }
+
+  file.parent.createSync(recursive: true);
+  file.writeAsStringSync('''
+# litert_crypto — model encryption config.
+# Paths are relative to this file. Run: dart run litert_crypto encrypt
+litert_crypto:
+  # Written by `dart run litert_crypto keygen`. Never commit it.
+  key_file: $_defaultKeyPath
+
+  # Optional: generated Dart source rebuilding the key from XOR parts, for
+  # EmbeddedKeyProvider. Remove this line if the key does not ship with the app
+  # (license file, server, secure storage) — see the README on where keys live.
+  key_parts_out: lib/model_key.dart
+
+  models:
+    # `src` stays out of your assets so the plaintext is never bundled;
+    # register only `out` as a Flutter asset.
+    - src: models_src/model.tflite
+      out: assets/tflite_model/model.tflite.enc
+      # label: opaque-name   # defaults to the out file name; stored in the
+      #                      # clear inside the encrypted file
+      # key_id: 0            # bump when rotating keys
+''');
+
+  stdout
+    ..writeln('Wrote $outPath')
+    ..writeln('')
+    ..writeln('Next:')
+    ..writeln('  1. dart run litert_crypto keygen')
+    ..writeln('  2. add ${File(_defaultKeyPath).parent.path}/ to .gitignore')
+    ..writeln('  3. move your models under models_src/ and edit the config')
+    ..writeln('  4. dart run litert_crypto encrypt');
 }
 
 /// Writes Dart source that rebuilds the key from XOR-combined parts.
@@ -246,7 +372,11 @@ Future<void> _encryptOne(
   }
   final plain = inputFile.readAsBytesSync();
 
-  final effectiveLabel = label ?? inputPath.split(RegExp(r'[/\\]')).last;
+  // Default to the output name rather than the source name: the label is
+  // stored in the clear, and the output name is already visible in the shipped
+  // bundle, so this leaks nothing new. Distinct outputs also keep labels
+  // distinct, which is all key derivation needs.
+  final effectiveLabel = label ?? outputPath.split(RegExp(r'[/\\]')).last;
   final encrypted = await LrtcCodec.encrypt(
     plain,
     key,

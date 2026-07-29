@@ -18,14 +18,12 @@ model never touches the disk.
 ### 1. Generate a key and encrypt models (build time)
 
 ```bash
+dart run litert_crypto init                   # writes an annotated litert_crypto.yaml
 dart run litert_crypto keygen                 # writes .secrets/model.key (gitignore it!)
-dart run litert_crypto encrypt \
-  --key .secrets/model.key \
-  --in models_src/model.tflite \
-  --out assets/tflite_model/model.tflite.enc
+dart run litert_crypto encrypt                # encrypts everything the config lists
 ```
 
-For multiple models, use `litert_crypto.yaml`:
+`init` refuses to overwrite an existing config. What it writes:
 
 ```yaml
 litert_crypto:
@@ -38,14 +36,32 @@ litert_crypto:
       out: assets/tflite_model/detector.tflite.enc
 ```
 
+`encrypt` reads the config named by `--config`, or the nearest `litert_crypto.yaml` at or
+above the working directory — so it runs from any subdirectory, and a nested project can
+carry its own. Paths inside the config resolve relative to the config file, not to wherever
+you ran the command.
+
+For a one-off you can skip the config and pass paths directly:
+
 ```bash
-dart run litert_crypto encrypt    # batch mode using the config file
+dart run litert_crypto encrypt \
+  --key .secrets/model.key \
+  --in models_src/model.tflite \
+  --out assets/tflite_model/model.tflite.enc
 ```
+
+That path does **not** regenerate `key_parts_out` — only config mode keeps the embedded key
+in step with the models.
 
 Keep plaintext originals (`models_src/`) outside your assets so they are never bundled.
 Register only the `.enc` files as Flutter assets. Whether to commit those originals is your
 call — a private repository usually makes it the practical choice, but it does mean anyone
 with repository access has the models regardless of encryption.
+
+`keygen` restricts the key file to your user (`chmod 600`) where the platform allows it.
+On Windows it does not run at all, and on WSL the call can report success against a mounted
+Windows drive without the permissions taking effect — so on those systems treat the key
+file's protection as whatever the surrounding directory gives it.
 
 #### `key_parts_out` — generated key source for `EmbeddedKeyProvider`
 
@@ -232,15 +248,16 @@ as the ciphertext, so tampering with the IV, `keyId`, or label is detected. Encr
 MAC keys are derived from your 32-byte key with HKDF-SHA256, and the MAC is verified before
 any decryption happens.
 
-The **label** (defaulting to the source file name) identifies the model and is mixed into
+The **label** (defaulting to the output file name) identifies the model and is mixed into
 key derivation, so two models encrypted with the same master key get different working
 keys — leaking one model's derived key does not unlock the others. It travels inside the
 envelope, so decryption needs nothing but the master key.
 
 Note that the header is **plaintext** — authenticated, not hidden. Anyone opening the file
-reads the label, so by default the original model file name is visible inside the
-ciphertext. That usually matches what the asset path already reveals; if the name itself
-gives something away, pass an opaque `label:` instead.
+reads the label, which is why it defaults to the *output* name: that name already appears
+in the shipped bundle, so it gives nothing away that unzipping would not. Naming your
+output generically is therefore enough; pass an explicit `label:` only if you want it to
+differ from the file name.
 
 **Why not AES-GCM?** Measured on a real 10 MB model: GCM took ~580 ms versus ~180 ms for
 CTR + HMAC in pure Dart, because GHASH gets no hardware acceleration here. Model
@@ -251,9 +268,9 @@ is available through the Flutter-free entrypoint `package:litert_crypto/codec.da
 
 ## Roadmap
 
-**0.0.1 (current)** — LRTC format and codec, `EncryptedModel` loader with no runtime
+**0.1.0 (current)** — LRTC format and codec, `EncryptedModel` loader with no runtime
 dependency, `Embedded`/`Callback`/`Remote`/`Fallback` key providers, `KeyCache`, and the
-`keygen` / `encrypt` CLI including generated key-part source.
+`init` / `keygen` / `encrypt` CLI including generated key-part source.
 
 **Next**
 
