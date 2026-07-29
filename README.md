@@ -70,7 +70,7 @@ the model into their own memory. If yours keeps the buffer alive instead, use
 
 | Provider | Key source | Strength | Use case |
 |---|---|---|---|
-| `EmbeddedKeyProvider` | Embedded in the app (XOR part-combining helper) | Low | Minimum defense — only stops unzip extraction |
+| `EmbeddedKeyProvider` | Embedded in the app (XOR part-combining helper) | Low — the key ships with the app | Minimum defense — only stops unzip extraction |
 | `CallbackKeyProvider` | Your callback (license file, custom storage, ...) | Up to you | App-specific policies such as license binding |
 | `RemoteKeyProvider` | Your fetch callback, with retries, single-flight and optional caching | Up to your server's gate | Keeping the key out of the binary entirely |
 | `FallbackKeyProvider` | Tries providers in order | — | Combinations like cache → server |
@@ -82,6 +82,41 @@ final provider = CallbackKeyProvider((context) async {
   return license.modelKey;
 });
 ```
+
+### Where the key lives — the only thing that changes the strength
+
+Encrypting the model is the easy half. What decides how much protection you actually get
+is whether the key ships with the app.
+
+**Tier 1 — the key is in the build.** These are ordered by how much work extraction takes.
+Every one of them still ships the key, so none of them is a boundary: they buy time, not
+safety.
+
+| | Extraction | Effort |
+|---|---|---|
+| Key file bundled as an asset | unzip the app, read the file | none — never do this |
+| One Dart literal | `strings` over the AOT snapshot | trivial |
+| **XOR-combined parts** (`EmbeddedKeyProvider.fromParts`) | find both arrays, notice they are combined | low — needs reading code, not scanning |
+| Derived in native code (your own FFI, via `CallbackKeyProvider`) | disassemble the `.so` | moderate |
+
+`--obfuscate --split-debug-info` raises all of these — but only against *static* analysis.
+A debugger or a hooking framework reads the key out of memory at runtime no matter how it
+was hidden, so treat Tier 1 as "stops casual extraction from the distributed artifact".
+
+**Tier 2 — the key does not ship.** This is the qualitative jump: someone holding only your
+app cannot decrypt anything, because the material simply is not there.
+
+| | Key comes from | What now gates access |
+|---|---|---|
+| Entitlement file (`CallbackKeyProvider`) | A license the user was issued | Your issuing process; works offline |
+| Server delivery (`RemoteKeyProvider`) | Your endpoint | Whatever your server checks — attestation on mobile, a user credential elsewhere |
+| Device-bound storage (`KeyCache` over Keystore/Keychain) | A key generated inside the device's secure element | The OS; the key never leaves the chip |
+
+Moving up a tier does not require touching the encrypted assets or the load call — only the
+`keyProvider` argument changes, which is what the abstraction is for.
+
+Even in Tier 2, the plaintext model exists in memory while inference runs. That limit is
+inherent to on-device inference; see the threat model below.
 
 ### Fetching the key from a server
 
