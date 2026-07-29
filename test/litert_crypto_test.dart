@@ -104,8 +104,7 @@ void main() {
           iv: parsed.iv,
         ),
         iv: parsed.iv,
-        cipherText: parsed.cipherText,
-        tag: parsed.tag,
+        sealed: parsed.sealed,
       ).serialize();
 
       expect(
@@ -305,78 +304,19 @@ void main() {
     });
   });
 
-  group('in-place decryption', () {
-    test('matches the allocating path byte for byte', () async {
-      // Larger than one streaming chunk, and not a multiple of it, so chunk
-      // boundaries and the final short chunk are both exercised.
+  group('buffer discipline', () {
+    test('a large, block-unaligned model round-trips', () async {
       final plain = _payload(9 * 1024 * 1024 + 12345);
       final encrypted = await LrtcCodec.encrypt(plain, _key(), label: 'big');
-
-      final expected = await LrtcCodec.decrypt(encrypted, _key());
-      final buffer = Uint8List.fromList(encrypted);
-      final actual = await LrtcCodec.decryptInPlace(buffer, _key());
-
-      expect(actual, equals(expected));
-      expect(actual, equals(plain));
+      expect(await LrtcCodec.decrypt(encrypted, _key()), equals(plain));
     });
 
-    test('writes the plaintext into the caller buffer', () async {
-      final plain = _payload();
-      final encrypted = await LrtcCodec.encrypt(plain, _key());
-      final buffer = Uint8List.fromList(encrypted);
-
-      final result = await LrtcCodec.decryptInPlace(buffer, _key());
-
-      // The result is a view: the ciphertext is gone from the caller's buffer,
-      // the plaintext sits where it used to be, and wiping one wipes the other.
-      expect(buffer, isNot(equals(encrypted)));
-      final start = result.offsetInBytes;
-      expect(buffer.sublist(start, start + result.length), equals(plain));
-      LrtcCodec.wipe(result);
-      expect(
-        buffer.sublist(start, start + result.length).every((b) => b == 0),
-        isTrue,
-      );
-    });
-
-    test('a wrong key leaves the buffer untouched', () async {
+    test('decryption reads a read-only buffer without touching it', () async {
+      // Asset bundles hand out read-only buffers on Android; decryption must
+      // never attempt to write into its input.
       final encrypted = await LrtcCodec.encrypt(_payload(), _key());
-      final buffer = Uint8List.fromList(encrypted);
-
-      await expectLater(
-        LrtcCodec.decryptInPlace(buffer, _key(11)),
-        throwsA(isA<DecryptionFailedException>()),
-      );
-      expect(buffer, equals(encrypted));
-    });
-
-    test('tampered bytes are rejected before anything is rewritten', () async {
-      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
-      final buffer = Uint8List.fromList(encrypted);
-      buffer[buffer.length ~/ 2] ^= 0xFF;
-      final tampered = Uint8List.fromList(buffer);
-
-      await expectLater(
-        LrtcCodec.decryptInPlace(buffer, _key()),
-        throwsA(isA<DecryptionFailedException>()),
-      );
-      expect(buffer, equals(tampered));
-    });
-
-    test('decryptWithProviderInPlace zeroes the key it was handed', () async {
-      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
-      Uint8List? handedOut;
-      final provider = CallbackKeyProvider((_) async {
-        return handedOut = Uint8List.fromList(_key());
-      });
-
-      final result = await decryptWithProviderInPlace(
-        LrtcEnvelope.parse(Uint8List.fromList(encrypted)),
-        provider,
-      );
-
-      expect(result, equals(_payload()));
-      expect(handedOut!.every((b) => b == 0), isTrue);
+      final readOnly = encrypted.asUnmodifiableView();
+      expect(await LrtcCodec.decrypt(readOnly, _key()), equals(_payload()));
     });
   });
 }

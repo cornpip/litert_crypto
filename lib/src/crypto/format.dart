@@ -3,19 +3,24 @@ import 'dart:typed_data';
 
 import '../exceptions.dart';
 
-/// The LRTC encrypted file format.
+/// The LRTC encrypted file format, version 2.
 ///
 /// ```
 /// [magic "LRTC" (4B)] [version (1B)] [keyId (2B, BE)] [labelLen (1B)]
-/// [label (labelLen B, UTF-8)] [IV (16B)] [ciphertext] [HMAC-SHA256 tag (32B)]
+/// [label (labelLen B, UTF-8)] [IV (12B)] [ciphertext ‖ GCM tag (16B)]
 /// ```
 ///
-/// Encrypt-then-MAC: the tag covers the whole header as well as the
-/// ciphertext, so tampering with the IV, keyId, or label is detected.
+/// AES-256-GCM with the whole header as additional authenticated data, so
+/// tampering with the IV, keyId, or label is detected by the tag at the end
+/// of the sealed payload.
 ///
 /// The [label] identifies the model and is mixed into key derivation, so two
 /// models encrypted with the same master key end up with different working
 /// keys — leaking one model's derived key does not unlock the others.
+///
+/// Version 1 (AES-CTR + HMAC-SHA256, written by litert_crypto 0.1.0) is not
+/// readable; parsing reports it with a re-encrypt hint. The format changed
+/// when decryption moved to BoringSSL, whose one-shot AEAD is the fast path.
 class LrtcEnvelope {
   const LrtcEnvelope({
     required this.version,
@@ -23,18 +28,17 @@ class LrtcEnvelope {
     required this.label,
     required this.header,
     required this.iv,
-    required this.cipherText,
-    required this.tag,
+    required this.sealed,
   });
 
   static const List<int> magic = [0x4C, 0x52, 0x54, 0x43]; // "LRTC"
-  static const int currentVersion = 1;
+  static const int currentVersion = 2;
 
-  /// AES-CTR nonce length (one AES block).
-  static const int ivLength = 16;
+  /// AES-GCM nonce length (the 96-bit fast path every implementation takes).
+  static const int ivLength = 12;
 
-  /// HMAC-SHA256 output length.
-  static const int tagLength = 32;
+  /// AES-GCM tag length, appended to the ciphertext inside [sealed].
+  static const int tagLength = 16;
 
   /// magic + version + keyId + labelLen.
   static const int fixedHeaderLength = 4 + 1 + 2 + 1;
@@ -50,12 +54,16 @@ class LrtcEnvelope {
   /// Model identifier mixed into key derivation.
   final String label;
 
-  /// The raw header bytes, authenticated by [tag].
+  /// The raw header bytes, authenticated as the AEAD's additional data.
   final Uint8List header;
 
   final Uint8List iv;
-  final Uint8List cipherText;
-  final Uint8List tag;
+
+  /// Ciphertext with the 16-byte GCM tag appended — the AEAD's input shape.
+  final Uint8List sealed;
+
+  /// Model size in bytes once decrypted.
+  int get plainLength => sealed.length - tagLength;
 
   /// Parses [bytes]. Throws [InvalidFormatException] if they are not a valid
   /// LRTC envelope.
@@ -72,7 +80,12 @@ class LrtcEnvelope {
     final version = bytes[4];
     if (version != currentVersion) {
       throw InvalidFormatException(
-        'Unsupported format version $version (supported: $currentVersion).',
+        version == 1
+            ? 'This is a version 1 file, written by litert_crypto 0.1.0. The '
+                'format changed in 0.2.0 — re-encrypt the model with the '
+                'current CLI: `dart run litert_crypto encrypt`.'
+            : 'Unsupported format version $version '
+                '(supported: $currentVersion).',
       );
     }
     final labelLength = bytes[7];
@@ -89,9 +102,7 @@ class LrtcEnvelope {
       ),
       header: Uint8List.sublistView(bytes, 0, headerLength),
       iv: Uint8List.sublistView(bytes, labelEnd, headerLength),
-      cipherText:
-          Uint8List.sublistView(bytes, headerLength, bytes.length - tagLength),
-      tag: Uint8List.sublistView(bytes, bytes.length - tagLength),
+      sealed: Uint8List.sublistView(bytes, headerLength),
     );
   }
 
@@ -124,10 +135,9 @@ class LrtcEnvelope {
 
   /// Serializes this envelope back into the LRTC byte layout.
   Uint8List serialize() {
-    final out = Uint8List(header.length + cipherText.length + tagLength);
+    final out = Uint8List(header.length + sealed.length);
     out.setAll(0, header);
-    out.setAll(header.length, cipherText);
-    out.setAll(header.length + cipherText.length, tag);
+    out.setAll(header.length, sealed);
     return out;
   }
 }

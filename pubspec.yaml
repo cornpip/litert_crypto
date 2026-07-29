@@ -3,10 +3,10 @@ description: "Stop shipping your .tflite in plain sight. Encrypt LiteRT (TFLite)
 version: 0.2.0
 repository: https://github.com/cornpip/litert_crypto
 
-# Floor verified: analyze + full test suite pass on Flutter 3.32.7 / Dart 3.8.1.
+# Floor set by webcrypto ^0.6.1 (Dart hooks)
 environment:
-  sdk: ^3.8.0
-  flutter: ">=3.32.0"
+  sdk: ^3.10.0
+  flutter: ">=3.38.0"
 
 topics:
   - litert
@@ -14,8 +14,6 @@ topics:
   - encryption
   - security
 
-# No web: dart:io aside, the threat model needs a bundle boundary — on the web
-# the code, the assets, and any embedded key are all served in the clear.
 platforms:
   android:
   ios:
@@ -26,8 +24,7 @@ platforms:
 dependencies:
   flutter:
     sdk: flutter
-  cryptography: ^2.7.0
-  # CLI-only dependencies (used from the Flutter-free entrypoint).
+  webcrypto: ^0.6.1
   args: ^2.6.0
   yaml: ^3.1.2
 

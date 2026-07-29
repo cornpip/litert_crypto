@@ -107,20 +107,28 @@ the model into their own memory. If yours keeps the buffer alive instead, use
 
 #### Cost, and where it is paid
 
-Decryption is CPU-bound and scales with model size — measured at roughly
-45 ms/MB on a mid-range Android phone, so a 68 MB model takes about three
-seconds. That work runs on a **worker isolate by default**, which is why the
-calling isolate keeps rendering: on that same phone a 68 MB model left the
-event loop 98% free, against 5% when run inline. Pass `inIsolate: false` to any
-loader entry point to keep it on the calling isolate.
+Decryption runs on BoringSSL (via `package:webcrypto`), which uses the CPU's
+AES instructions — every ARMv8 phone has them. Measured on an AES-NI desktop:
+**1.2 ms/MB**, a 72 MB model in 87 ms. Expect the same order of magnitude on
+phones.
 
-Peak memory during a load is three buffers the size of the model: the
-ciphertext, the plaintext, and the copy the inference runtime makes for itself.
-Only the runtime's copy survives the load. If you hold the encrypted bytes
-yourself — a file you read, a download — `decryptBufferInPlace` drops that to
-two by converting the ciphertext where it already sits. It is not usable for
-assets: asset bundles hand out read-only buffers on Android, and writing to one
-throws.
+Even fast decryption is solid CPU work, so it runs on a **worker isolate by
+default** and the calling isolate keeps rendering through it. Pass
+`inIsolate: false` to any loader entry point to keep it on the calling
+isolate.
+
+Plan for a load to briefly hold a few model-sized buffers at once — the
+ciphertext, the plaintext, and the copy the inference runtime makes for
+itself. Only the runtime's copy survives the load.
+
+#### The native library
+
+BoringSSL ships as source inside `webcrypto` and is compiled by your normal
+build: Gradle/NDK on Android, Xcode on iOS/macOS — nothing to configure.
+Running on a **host** machine (`flutter test`, or the CLI on a plain Dart VM)
+builds it there too, which needs `cmake` and a C compiler, plus NASM on
+Windows x64 (`winget install nasm`). CI images without a C toolchain will
+fail the host build — the app build is unaffected.
 
 ## KeyProvider — the key source is your policy
 
@@ -190,15 +198,15 @@ unknown key) — anything else counts as transient and is retried.
 
 `KeyCache` is an interface, not a plugin: `InMemoryKeyCache` keeps a fetched key for the
 life of the process and never touches disk. To survive restarts, implement `KeyCache` on
-top of `flutter_secure_storage` or your own channel — the package stays plugin-free so it
-works anywhere your inference runtime does.
+top of `flutter_secure_storage` or your own channel — the package carries no
+platform-channel plugins of its own, so it works anywhere your inference runtime does.
 
 ## Threat model
 
 | Attack | Defended? |
 |---|---|
 | Extracting the model by unzipping the bundle (APK / install folder) | ✅ Yes — only ciphertext ships |
-| Model tampering (backdoored model injection) | ✅ Detected — HMAC-SHA256 tag over header + ciphertext |
+| Model tampering (backdoored model injection) | ✅ Detected — GCM tag authenticates header + ciphertext |
 | Copying ciphertext + app to another machine and decrypting offline | Depends on your KeyProvider — Embedded ⚠️ / external key ✅ |
 | Memory dump while the app is running | ❌ No — inherent limit of on-device inference; the exposure window is narrowed by zeroing keys and buffers after use |
 | Patching / reverse engineering the decryption logic | ❌ No — combine with `--obfuscate` |
@@ -207,14 +215,16 @@ works anywhere your inference runtime does.
 ## File format
 
 ```
-[magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [labelLen (1B)] [label] [IV (16B)] [ciphertext] [HMAC-SHA256 tag (32B)]
+[magic "LRTC" (4B)] [version (1B)] [keyId (2B)] [labelLen (1B)] [label] [IV (12B)] [ciphertext ‖ GCM tag (16B)]
 ```
 
-AES-256-CTR with encrypt-then-MAC (HMAC-SHA256), per-model working keys derived with
-HKDF-SHA256, and the MAC verified before any decryption. The entire model file is
-encrypted — nothing of the original `.tflite` survives in the clear. The header (including
-the label, which defaults to the output file name) is authenticated but readable. Layout
-details and the reasoning behind the cipher choice: [docs/design](litert_crypto_docs/design.md).
+AES-256-GCM with the whole header as additional authenticated data, and per-model working
+keys derived with HKDF-SHA256. The entire model file is encrypted — nothing of the
+original `.tflite` survives in the clear. The header (including the label, which defaults
+to the output file name) is authenticated but readable. Files written by 0.1.0 (format
+version 1) must be re-encrypted — one `dart run litert_crypto encrypt` is the whole
+migration. Layout details and the reasoning behind the cipher choice:
+[docs/design](litert_crypto_docs/design.md).
 
 ## Roadmap
 

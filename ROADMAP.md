@@ -5,7 +5,8 @@
 LRTC format and codec, `EncryptedModel` loader with no runtime dependency,
 `Embedded`/`Callback`/`Remote`/`Fallback` key providers, `KeyCache`, and the
 `init` / `keygen` / `encrypt` CLI including generated key-part source.
-Decryption runs on a worker isolate by default and holds one buffer, not three.
+Decryption is AES-256-GCM on BoringSSL (measured 1.2 ms/MB on an AES-NI
+desktop) and runs on a worker isolate by default.
 
 ## Next
 
@@ -13,9 +14,10 @@ Decryption runs on a worker isolate by default and holds one buffer, not three.
   asset
 - A `KeyCache` recipe over `flutter_secure_storage`, kept out of this package
   so it stays plugin-free
-- Decrypt straight into the inference runtime's own buffer. The runtime copies
-  the plaintext into native memory, so a model is briefly resident twice; no
-  runtime exposes a buffer to fill, which is what it would take to avoid that
+- Decrypt straight into the inference runtime's own buffer, so a model is
+  never resident twice. Blocked on both ends today: no runtime exposes a
+  buffer to fill, and the GCM engine returns a fresh buffer rather than
+  filling one
 
 ## Decided against
 

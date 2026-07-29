@@ -126,25 +126,6 @@ class EncryptedModel {
     );
   }
 
-  /// Decrypts [encryptedBytes] in place and returns a plaintext view into them.
-  ///
-  /// Saves the full-size allocation [decryptBuffer] makes for its result, which
-  /// is worth having on large models. [encryptedBytes] is destroyed, so it must
-  /// be a buffer you own — bytes read from a file or downloaded, not an asset:
-  /// asset bundles hand out read-only buffers on Android. See
-  /// [LrtcCodec.decryptInPlace].
-  static Future<Uint8List> decryptBufferInPlace(
-    Uint8List encryptedBytes, {
-    required KeyProvider keyProvider,
-    String? source,
-  }) {
-    return decryptWithProviderInPlace(
-      LrtcEnvelope.parse(encryptedBytes),
-      keyProvider,
-      source: source,
-    );
-  }
-
   static Future<Uint8List> _loadAsset(String assetKey) async {
     final data = await rootBundle.load(assetKey);
     return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);

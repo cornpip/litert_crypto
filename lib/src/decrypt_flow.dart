@@ -42,22 +42,3 @@ Future<Uint8List> decryptWithProvider(
     LrtcCodec.wipe(key);
   }
 }
-
-/// Same as [decryptWithProvider], but decrypts in place.
-///
-/// The returned plaintext is a view into the buffer [envelope] was parsed from,
-/// which no longer holds the ciphertext. See [LrtcCodec.decryptInPlace].
-Future<Uint8List> decryptWithProviderInPlace(
-  LrtcEnvelope envelope,
-  KeyProvider keyProvider, {
-  String? source,
-}) async {
-  final key = await keyProvider.getKey(
-    KeyContext(keyId: envelope.keyId, source: source, label: envelope.label),
-  );
-  try {
-    return await LrtcCodec.decryptEnvelopeInPlace(envelope, key);
-  } finally {
-    LrtcCodec.wipe(key);
-  }
-}
