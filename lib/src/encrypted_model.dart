@@ -42,12 +42,14 @@ class EncryptedModel {
     String assetKey, {
     required KeyProvider keyProvider,
     required ModelBuilder<T> build,
+    bool inIsolate = true,
   }) async {
     return fromBuffer(
       await _loadAsset(assetKey),
       keyProvider: keyProvider,
       build: build,
       source: assetKey,
+      inIsolate: inIsolate,
     );
   }
 
@@ -56,12 +58,14 @@ class EncryptedModel {
     File file, {
     required KeyProvider keyProvider,
     required ModelBuilder<T> build,
+    bool inIsolate = true,
   }) async {
     return fromBuffer(
       await file.readAsBytes(),
       keyProvider: keyProvider,
       build: build,
       source: file.path,
+      inIsolate: inIsolate,
     );
   }
 
@@ -71,11 +75,14 @@ class EncryptedModel {
     required KeyProvider keyProvider,
     required ModelBuilder<T> build,
     String? source,
+    bool inIsolate = true,
   }) async {
     final plain = await decryptWithProvider(
       LrtcEnvelope.parse(encryptedBytes),
       keyProvider,
       source: source,
+      inIsolate: inIsolate,
+      encryptedBytes: encryptedBytes,
     );
     try {
       return await build(plain);
@@ -92,11 +99,13 @@ class EncryptedModel {
   static Future<Uint8List> decryptAsset(
     String assetKey, {
     required KeyProvider keyProvider,
+    bool inIsolate = true,
   }) async {
     return decryptBuffer(
       await _loadAsset(assetKey),
       keyProvider: keyProvider,
       source: assetKey,
+      inIsolate: inIsolate,
     );
   }
 
@@ -106,8 +115,30 @@ class EncryptedModel {
     Uint8List encryptedBytes, {
     required KeyProvider keyProvider,
     String? source,
+    bool inIsolate = true,
   }) {
     return decryptWithProvider(
+      LrtcEnvelope.parse(encryptedBytes),
+      keyProvider,
+      source: source,
+      inIsolate: inIsolate,
+      encryptedBytes: encryptedBytes,
+    );
+  }
+
+  /// Decrypts [encryptedBytes] in place and returns a plaintext view into them.
+  ///
+  /// Saves the full-size allocation [decryptBuffer] makes for its result, which
+  /// is worth having on large models. [encryptedBytes] is destroyed, so it must
+  /// be a buffer you own — bytes read from a file or downloaded, not an asset:
+  /// asset bundles hand out read-only buffers on Android. See
+  /// [LrtcCodec.decryptInPlace].
+  static Future<Uint8List> decryptBufferInPlace(
+    Uint8List encryptedBytes, {
+    required KeyProvider keyProvider,
+    String? source,
+  }) {
+    return decryptWithProviderInPlace(
       LrtcEnvelope.parse(encryptedBytes),
       keyProvider,
       source: source,

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.0
+
+* Decryption runs on a worker isolate by default (`inIsolate`, on every loader
+  entry point). A 68 MB model takes seconds to decrypt; run inline that is
+  seconds of a frozen UI. The ciphertext travels as `TransferableTypedData` and
+  the plaintext returns through `Isolate.run`, so neither crossing copies the
+  model. **This changes default behaviour** — pass `inIsolate: false` to keep
+  decryption on the calling isolate.
+* Decryption no longer joins the header and ciphertext into one buffer to
+  compute the MAC — it hashes them incrementally. That copy was the size of the
+  whole model, so a large model now needs one buffer less at peak.
+* `decryptEnvelope` allocates exactly one buffer and converts the ciphertext
+  inside it, instead of taking whatever the cipher allocated and sometimes
+  copying that again.
+* New `LrtcCodec.decryptInPlace` / `decryptBufferInPlace`: decrypt a buffer you
+  own with no allocation at all. Not for assets — asset bundles hand out
+  read-only buffers on Android.
+* Decryption yields to the event loop between chunks, so a multi-second
+  decryption no longer holds the isolate in one uninterrupted block.
+
 ## 0.1.0
 
 Initial release.

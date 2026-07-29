@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:litert_crypto/codec.dart';
 import 'package:litert_crypto/src/decrypt_flow.dart';
+import 'package:litert_crypto/src/isolate_decrypt.dart';
 import 'package:litert_crypto/src/key_provider/callback_key_provider.dart';
 import 'package:litert_crypto/src/key_provider/embedded_key_provider.dart';
 import 'package:litert_crypto/src/key_provider/fallback_key_provider.dart';
@@ -250,6 +252,131 @@ void main() {
         () => FallbackKeyProvider([failing]).getKey(context),
         throwsA(isA<KeyUnavailableException>()),
       );
+    });
+  });
+
+  group('isolate decryption', () {
+    test('returns the same plaintext as the inline path', () async {
+      final plain = _payload(5 * 1024 * 1024 + 77);
+      final encrypted = await LrtcCodec.encrypt(plain, _key(), label: 'iso');
+
+      final onIsolate = await decryptOnIsolate(encrypted, _key());
+
+      expect(onIsolate, equals(plain));
+    });
+
+    test('leaves the caller buffer and key intact', () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+      final untouched = Uint8List.fromList(encrypted);
+      final key = _key();
+
+      await decryptOnIsolate(encrypted, key);
+
+      expect(encrypted, equals(untouched));
+      expect(key, equals(_key()));
+    });
+
+    test('a wrong key fails there too', () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+      await expectLater(
+        decryptOnIsolate(encrypted, _key(11)),
+        throwsA(isA<DecryptionFailedException>()),
+      );
+    });
+
+    test('the caller isolate keeps running while it works', () async {
+      // 60 MB: seconds of AES. If it ran inline, the ticks below would stall.
+      final encrypted =
+          await LrtcCodec.encrypt(_payload(60 * 1024 * 1024), _key());
+
+      var ticks = 0;
+      final timer =
+          Timer.periodic(const Duration(milliseconds: 10), (_) => ticks++);
+      final watch = Stopwatch()..start();
+      await decryptOnIsolate(encrypted, _key());
+      watch.stop();
+      timer.cancel();
+
+      // Anything close to the theoretical tick count means the event loop was
+      // free; an inline run would have blocked nearly all of them.
+      final expected = watch.elapsedMilliseconds ~/ 10;
+      expect(ticks, greaterThan(expected ~/ 2),
+          reason: 'only $ticks of ~$expected ticks fired — the caller stalled');
+    });
+  });
+
+  group('in-place decryption', () {
+    test('matches the allocating path byte for byte', () async {
+      // Larger than one streaming chunk, and not a multiple of it, so chunk
+      // boundaries and the final short chunk are both exercised.
+      final plain = _payload(9 * 1024 * 1024 + 12345);
+      final encrypted = await LrtcCodec.encrypt(plain, _key(), label: 'big');
+
+      final expected = await LrtcCodec.decrypt(encrypted, _key());
+      final buffer = Uint8List.fromList(encrypted);
+      final actual = await LrtcCodec.decryptInPlace(buffer, _key());
+
+      expect(actual, equals(expected));
+      expect(actual, equals(plain));
+    });
+
+    test('writes the plaintext into the caller buffer', () async {
+      final plain = _payload();
+      final encrypted = await LrtcCodec.encrypt(plain, _key());
+      final buffer = Uint8List.fromList(encrypted);
+
+      final result = await LrtcCodec.decryptInPlace(buffer, _key());
+
+      // The result is a view: the ciphertext is gone from the caller's buffer,
+      // the plaintext sits where it used to be, and wiping one wipes the other.
+      expect(buffer, isNot(equals(encrypted)));
+      final start = result.offsetInBytes;
+      expect(buffer.sublist(start, start + result.length), equals(plain));
+      LrtcCodec.wipe(result);
+      expect(
+        buffer.sublist(start, start + result.length).every((b) => b == 0),
+        isTrue,
+      );
+    });
+
+    test('a wrong key leaves the buffer untouched', () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+      final buffer = Uint8List.fromList(encrypted);
+
+      await expectLater(
+        LrtcCodec.decryptInPlace(buffer, _key(11)),
+        throwsA(isA<DecryptionFailedException>()),
+      );
+      expect(buffer, equals(encrypted));
+    });
+
+    test('tampered bytes are rejected before anything is rewritten', () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+      final buffer = Uint8List.fromList(encrypted);
+      buffer[buffer.length ~/ 2] ^= 0xFF;
+      final tampered = Uint8List.fromList(buffer);
+
+      await expectLater(
+        LrtcCodec.decryptInPlace(buffer, _key()),
+        throwsA(isA<DecryptionFailedException>()),
+      );
+      expect(buffer, equals(tampered));
+    });
+
+    test('decryptWithProviderInPlace zeroes the key it was handed', () async {
+      final encrypted = await LrtcCodec.encrypt(_payload(), _key());
+      Uint8List? handedOut;
+      final provider = CallbackKeyProvider((_) async {
+        return handedOut = Uint8List.fromList(_key());
+      });
+
+      final result = await decryptWithProviderInPlace(
+        LrtcEnvelope.parse(Uint8List.fromList(encrypted)),
+        provider,
+      );
+
+      expect(result, equals(_payload()));
+      expect(handedOut!.every((b) => b == 0), isTrue);
     });
   });
 }

@@ -105,6 +105,23 @@ The decrypted buffer is zeroed as soon as `build` returns, since runtimes copy
 the model into their own memory. If yours keeps the buffer alive instead, use
 `EncryptedModel.decryptAsset()` and manage the lifetime (and the wipe) yourself.
 
+#### Cost, and where it is paid
+
+Decryption is CPU-bound and scales with model size — measured at roughly
+45 ms/MB on a mid-range Android phone, so a 68 MB model takes about three
+seconds. That work runs on a **worker isolate by default**, which is why the
+calling isolate keeps rendering: on that same phone a 68 MB model left the
+event loop 98% free, against 5% when run inline. Pass `inIsolate: false` to any
+loader entry point to keep it on the calling isolate.
+
+Peak memory during a load is three buffers the size of the model: the
+ciphertext, the plaintext, and the copy the inference runtime makes for itself.
+Only the runtime's copy survives the load. If you hold the encrypted bytes
+yourself — a file you read, a download — `decryptBufferInPlace` drops that to
+two by converting the ciphertext where it already sits. It is not usable for
+assets: asset bundles hand out read-only buffers on Android, and writing to one
+throws.
+
 ## KeyProvider — the key source is your policy
 
 | Provider | Key source | Strength | Use case |
