@@ -1,0 +1,23 @@
+# Controls what `dart pub publish` packs. NOTE: when .pubignore exists, pub
+# stops consulting .gitignore in this directory — every exclusion that matters
+# for publishing must be repeated here.
+
+# Keys and plaintext models must never be published.
+.secrets/
+models_src/
+*.key
+*.tflite
+
+# Design docs stay in the repository; the README links to them there.
+litert_crypto_docs/
+
+# Development-only files.
+test/
+build/
+coverage/
+*.iml
+.idea/
+.vscode/
+pubspec.lock
+*.log
+.DS_Store
