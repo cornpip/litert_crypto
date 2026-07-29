@@ -1,7 +1,6 @@
 name: litert_crypto
 description: "Stop shipping your .tflite in plain sight. Encrypt LiteRT (TFLite) models at build time and decrypt them in memory only — with pluggable key providers."
 version: 0.1.0
-# NOTE: create this repository before the first real publish.
 repository: https://github.com/cornpip/litert_crypto
 
 # Floor verified: analyze + full test suite pass on Flutter 3.32.7 / Dart 3.8.1.
