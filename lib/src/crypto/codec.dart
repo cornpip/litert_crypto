@@ -10,7 +10,7 @@ import 'format.dart';
 /// Encrypts/decrypts the LRTC format: AES-256-CTR with encrypt-then-MAC
 /// (HMAC-SHA256).
 ///
-/// AES-GCM was measured ~3.5x slower on a 10 MB model in pure Dart (GHASH has
+/// AES-GCM was measured ~3x slower on a 10 MB model in pure Dart (GHASH has
 /// no hardware acceleration here), which matters because model decryption sits
 /// on the app's load path. CTR + HMAC keeps authenticated encryption at a much
 /// lower cost.

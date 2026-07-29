@@ -27,7 +27,7 @@ dart run litert_crypto keygen                 # writes .secrets/model_master.key
 dart run litert_crypto encrypt                # encrypts everything the config lists
 ```
 
-`init` refuses to overwrite an existing config. What it writes:
+`init` refuses to overwrite an existing config. A filled-in config looks like:
 
 ```yaml
 litert_crypto:
@@ -66,8 +66,9 @@ The generated file records a fingerprint of the key it was built from, so re-run
 `encrypt` rewrites it only when the key actually changed — no churn in your diffs. Use
 `key_parts_symbol` to rename the generated function (default `buildModelKeyProvider`).
 
-Because that file is committed source, **the key is recoverable from the repository** by
-XOR-ing the parts — the split only keeps a finished key out of the shipped binary. Skip
+Because that file is committed source,
+**[the key is recoverable from the repository](litert_crypto_docs/key-management.md#the-repository-is-part-of-the-trust-boundary)**
+by XOR-ing the parts — the split only keeps a finished key out of the shipped binary. Skip
 this option entirely if the key does not live in the app (see
 [Where the key lives](#where-the-key-lives--the-only-thing-that-changes-the-strength)).
 
@@ -184,12 +185,7 @@ works anywhere your inference runtime does.
 | Copying ciphertext + app to another machine and decrypting offline | Depends on your KeyProvider — Embedded ⚠️ / external key ✅ |
 | Memory dump while the app is running | ❌ No — inherent limit of on-device inference; the exposure window is narrowed by zeroing keys and buffers after use |
 | Patching / reverse engineering the decryption logic | ❌ No — combine with `--obfuscate` |
-| **Access to your source repository** | ❌ No, if the key ships with the app |
-
-The last row is the one teams overlook: with `EmbeddedKeyProvider`, the committed key
-parts plus the plaintext models in the repository mean **repository access is model
-access** — no reverse engineering required. See
-[the trust-boundary discussion](litert_crypto_docs/key-management.md#the-repository-is-part-of-the-trust-boundary).
+| **Access to your source repository** | ❌ No, if the key ships with the app — [repository access is model access](litert_crypto_docs/key-management.md#the-repository-is-part-of-the-trust-boundary) |
 
 ## File format
 
@@ -205,17 +201,5 @@ details and the reasoning behind the cipher choice: [docs/design](litert_crypto_
 
 ## Roadmap
 
-**0.1.0 (current)** — LRTC format and codec, `EncryptedModel` loader with no runtime
-dependency, `Embedded`/`Callback`/`Remote`/`Fallback` key providers, `KeyCache`, and the
-`init` / `keygen` / `encrypt` CLI including generated key-part source.
-
-**Next**
-
-- `check` CLI: fail a build when a plaintext model is still registered as an asset
-- A `KeyCache` recipe over `flutter_secure_storage`, kept out of this package so it stays
-  plugin-free
-- Optional isolate decryption — a 10 MB model costs ~500 ms on a mid-range phone, which
-  blocks the UI thread on the load path
-
-Design decisions and the features deliberately left out:
-[docs/design](litert_crypto_docs/design.md#decided-against).
+Current status, planned work, and what was deliberately left out:
+[ROADMAP](ROADMAP.md).

@@ -31,7 +31,7 @@ anything, because the material simply is not there.
 |---|---|---|
 | Entitlement file (`CallbackKeyProvider`) | A license the user was issued | Your issuing process; works offline |
 | Server delivery (`RemoteKeyProvider`) | Your endpoint | Whatever your server checks — attestation on mobile, a user credential elsewhere |
-| Device-bound storage (`KeyCache` over Keystore/Keychain) | A key generated inside the device's secure element | The OS; the key never leaves the chip |
+| Cached in platform secure storage (`KeyCache` over Keystore/Keychain) | A fetched key, persisted in the OS's hardware-backed store | The OS protects it at rest; it still enters app memory to decrypt |
 
 Moving up a tier does not require touching the encrypted assets or the load
 call — only the `keyProvider` argument changes, which is what the abstraction
