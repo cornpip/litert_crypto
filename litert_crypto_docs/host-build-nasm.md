@@ -74,7 +74,18 @@ strictly better than failing the build.
    `OPENSSL_NO_ASM` instead of failing — or expose a user-define that forces
    it. Host-tooling consumers lose nothing but speed they don't need. This
    fixes the problem for every dependent, not just us.
-   *Status: not yet filed.*
+   *Status (checked 2026-07-30): not filed, and deliberately on hold.* No
+   upstream issue covers the NASM requirement yet, but the maintainers are
+   actively building a stronger fix — **prebuilt binaries**, which would
+   remove local BoringSSL compilation (and with it NASM, cmake, and the C
+   compiler) entirely:
+   [PR #315](https://github.com/google/webcrypto.dart/pull/315) (prebuilt
+   native asset infrastructure, open, under maintainer review),
+   [PR #325](https://github.com/google/webcrypto.dart/pull/325) (draft
+   alternative modeled on ICU4X's artifact fetch), tracking issue
+   [#192](https://github.com/google/webcrypto.dart/issues/192). File the
+   fallback proposal only if that work stalls — it would be obsoleted the
+   moment prebuilts ship.
 3. **Only if friction proves real: a webcrypto-free CLI package.** A separate
    `litert_crypto_cli` using pure-Dart AES-256-GCM would drop the C-toolchain
    requirement for hosts entirely. It doubles the crypto implementations
