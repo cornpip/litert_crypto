@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+Documentation release — no code changes.
+
+* README reworked for readability: the Windows NASM requirement now has its
+  own error → cause → fix walkthrough next to the CLI usage; key rotation and
+  `key_id` are explained instead of name-dropped; several sections trimmed of
+  internals that belong in the design docs.
+* New in the repository (not part of the published package):
+  `tool/setup.ps1`, a one-shot NASM check/install/PATH-repair script for
+  Windows hosts.
+
 ## 0.2.0
 
 The crypto engine is now native BoringSSL (`package:webcrypto`, dart:ffi)

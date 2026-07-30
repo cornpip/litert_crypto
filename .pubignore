@@ -21,7 +21,9 @@ example/models_src/
 example/build/
 example/.secrets/
 
-# Development-only files.
+# Development-only files. tool/ holds host setup scripts; like the docs,
+# they stay in the repository and the README links to them there.
+tool/
 test/
 build/
 coverage/

@@ -2,7 +2,8 @@
 
 Internals and the reasoning behind them. For installation and usage, see the
 [README](../README.md); for choosing where your key lives, see
-[key-management.md](key-management.md).
+[key-management.md](key-management.md); for why the Windows host build wants
+NASM and what we plan to do about it
 
 ## The LRTC file format
 
