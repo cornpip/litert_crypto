@@ -1,5 +1,11 @@
 # litert_crypto example
 
+> **This branch (`repro/dll-race`) is a reproduction for
+> [dart-lang/sdk#63933](https://github.com/dart-lang/sdk/issues/63933)** —
+> concurrent `dart run` racing on native-asset staging.
+> Repro: `cd example && flutter clean && flutter build windows` (or any
+> target), crashes on most runs.
+
 Transformer-mode round trip: the committed model asset
 (`assets/tflite_model/demo_model.bin`, a stand-in for a real `.tflite`) is
 plaintext, the build encrypts it into the bundle, and the app decrypts it
