@@ -2,18 +2,17 @@
 
 ## 0.3.1
 
-The asset transformer hits an upstream `dart run` concurrency bug: parallel
-per-asset invocations race on native-asset staging and can crash multi-asset
-builds on Windows
-([dart-lang/sdk#63933](https://github.com/dart-lang/sdk/issues/63933)).
-The feature stays, but until the fix lands upstream:
+Documentation release — no code changes.
 
-* The recommended workflow — README and the example app — is back to CLI
-  encryption: `dart run litert_crypto encrypt` + registering the `.enc`
-  files as plain assets. The transformer remains available and documented,
-  with the caveat.
-* The example's demo key is gitignored again — without the transformer,
-  building the example needs no key file.
+**Prefer the CLI flow over the asset transformer for now**: encrypt with
+`dart run litert_crypto encrypt` and register the `.enc` files as plain
+assets — the README and the example app follow this flow again.
+
+Multi-asset builds using the asset transformer (added in 0.3.0) have been
+observed to crash on Windows — the parallel per-asset `dart run` processes
+race while staging native assets (reported as
+[dart-lang/sdk#63933](https://github.com/dart-lang/sdk/issues/63933)). The
+transformer remains available.
 
 ## 0.3.0
 

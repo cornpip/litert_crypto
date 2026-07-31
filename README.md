@@ -1,6 +1,6 @@
 # litert_crypto
 
-Encrypt and load **LiteRT (TensorFlow Lite / TFLite)** models — build-time encryption (a CLI, plus a Flutter asset transformer) and an in-memory decryption loader with pluggable key providers.
+Encrypt and load **LiteRT (TensorFlow Lite / TFLite)** models — a build-time encryption CLI plus an in-memory decryption loader with pluggable key providers.
 
 > **This package does not guarantee protection.** It provides encryption tooling and a key
 > injection point (`KeyProvider`); the actual protection strength is determined by how you
@@ -81,41 +81,12 @@ can skip the config and pass `--key`, `--in`, and `--out` directly. A model
 your app downloads at runtime is encrypted the same way — load it with
 `EncryptedModel.fromFile`, same key.
 
-#### Asset transformer — automatic, but with a known upstream issue
-
-Registering plaintext models with litert_crypto as their asset transformer
-makes `flutter build` encrypt them on their way into the bundle — no
-`encrypt` step, and the assets keep their names:
-
-```yaml
-flutter:
-  assets:
-    - path: assets/tflite_model/
-      transformers:
-        - package: litert_crypto
-```
-
-> **Not the recommended default for now.** Multi-asset transformer builds
-> can crash on Windows — the parallel per-asset `dart run` processes race
-> on native-asset staging, an upstream bug filed as
-> [dart-lang/sdk#63933](https://github.com/dart-lang/sdk/issues/63933).
-> Until it is fixed, prefer the CLI flow above.
-
-Transformer notes, for when you do use it: every file directly inside a
-registered folder is encrypted (keep the folder models-only; subfolders need
-their own entry); per-asset `args: ['--label', ..., '--key-id', ...]`
-replace the config's per-model fields; the build needs the key file present
-(CI: provision it from a secret); and with `key_parts_out` set, a build
-whose generated key parts are stale or missing fails with a `keyparts` hint
-(`dart run litert_crypto keyparts` regenerates them standalone).
-
 #### The native crypto engine (BoringSSL)
 
 App builds need nothing — Gradle/NDK and Xcode compile BoringSSL themselves.
-The **host** side (the transformer inside `flutter build`, `flutter test`,
-the CLI) compiles a host copy on first run — cached after that — and needs
-`cmake` and a C compiler. On Windows x64 it also needs NASM, or the first
-run stops with:
+The **host** side (`flutter test`, the CLI) compiles a host copy on first
+run — cached after that — and needs `cmake` and a C compiler. On Windows
+x64 it also needs NASM, or the first run stops with:
 
 ```
 No CMAKE_ASM_NASM_COMPILER could be found
