@@ -117,6 +117,41 @@ void main() {
     );
   });
 
+  test('a plaintext tflite model is named as such, not a generic error',
+      () async {
+    // A TFLite flatbuffer: 4-byte root offset, then the "TFL3" identifier.
+    // Reaching the loader in this state means the asset was bundled without
+    // the transformer — the message must say so.
+    final tflite = Uint8List.fromList([
+      0x1C, 0x00, 0x00, 0x00, // flatbuffer root offset
+      0x54, 0x46, 0x4C, 0x33, // "TFL3"
+      ...List.filled(64, 0),
+    ]);
+    expect(
+      () => LrtcEnvelope.parse(tflite),
+      throwsA(
+        isA<InvalidFormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('plaintext'), contains('transformer')),
+        ),
+      ),
+    );
+
+    // Arbitrary garbage keeps the generic message.
+    final garbage = Uint8List.fromList(List.generate(64, (i) => i + 1));
+    expect(
+      () => LrtcEnvelope.parse(garbage),
+      throwsA(
+        isA<InvalidFormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('not a valid LRTC envelope'),
+        ),
+      ),
+    );
+  });
+
   test('v1 files are refused with a re-encrypt hint', () async {
     // Magic + version 1 + keyId + empty label: enough header for the version
     // check, which is all a 0.1.0 file gets to before being turned away.

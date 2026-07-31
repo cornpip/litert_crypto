@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0
+
+Build-time encryption via a Flutter asset transformer
+
+* Transformer mode (`--input`/`--output`, invoked by the flutter tool) with
+  optional `--label`, `--key-id`, `--config` args; the label defaults to the
+  asset's file name.
+* New `keyparts` command — (re)generates the `key_parts_out` Dart source
+  without an `encrypt` run; rewrites when the key or `key_parts_symbol`
+  changes.
+* The config can live in `pubspec.yaml` as a top-level `litert_crypto:`
+  section; a dedicated `litert_crypto.yaml` wins when both exist.
+* With `key_parts_out` set, a build with stale or missing key parts fails
+  with a `keyparts` hint — instead of failing at app runtime.
+* Builds need the key file — on CI, provision `.secrets/model_master.key`
+  from a secret; a missing key fails the build with that hint.
+* Key rotation: bump `--key-id` in the transformer args (or `flutter clean`)
+  — the build cache cannot see a key change. See docs/key-management.
+* The loader names a plaintext TFLite model (`TFL3`) instead of raising a
+  generic format error — it means the asset was bundled unencrypted.
+* The first `flutter build` now compiles the BoringSSL host library (cmake +
+  C compiler, NASM on Windows x64) — previously only `flutter test` and the
+  CLI did. Cached after the first run.
+
 ## 0.2.1
 
 Documentation release — no code changes.

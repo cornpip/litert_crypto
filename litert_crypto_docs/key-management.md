@@ -62,3 +62,43 @@ Fetching the key remotely takes the secret out of your binary, but it does
   the user holds (license, account login).
 - Without a gate, an attacker simply asks your server for the key like any
   other client.
+
+## Key rotation
+
+Rotating is just encrypting again with a fresh key:
+
+1. Replace the key file: delete it and run `dart run litert_crypto keygen`.
+2. Regenerate the embedded parts (if `key_parts_out` is set):
+   `dart run litert_crypto keyparts`.
+3. Rebuild the app. Models encrypted outside the build (downloaded ones):
+   rerun `encrypt` and re-upload.
+4. Ship the new assets and the app in the same release.
+
+### The build-cache caveat (transformer mode)
+
+The flutter tool caches a transformed asset keyed on the *asset's content and
+the transformer entry in pubspec.yaml* — the key file is not one of its
+inputs, because the tool has no idea the transformer reads it. So after a
+rotation the next build can reuse ciphertext cached under the **old** key
+while the app embeds the **new** key parts; nothing fails until decryption
+does, at runtime. (The transformer's own key-parts freshness check cannot
+catch this either — a cached asset skips the transformer process entirely.)
+
+Two ways to force a re-encrypt, either works:
+
+- **Bump `--key-id` in the transformer `args`** — editing pubspec.yaml
+  invalidates the cached transform. You would bump it anyway: the number
+  exists to stamp which key generation encrypted a file.
+- **`flutter clean`** — wipes the build cache wholesale.
+
+Clean builds (CI, fresh checkouts) never hit this: with no cache, every asset
+is re-encrypted with the current key.
+
+### `key_id` — letting two generations coexist
+
+If two key generations must be served at once — users on the previous release
+still fetch the old key from your server while new installs need the new
+one — bump the key id when you rotate (`key_id` in the config, `--key-id` in
+transformer args). The number is stamped into each encrypted asset's header
+and reaches your `KeyProvider` as `KeyContext.keyId`, which is how it can
+tell which generation's key to return.

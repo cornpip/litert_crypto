@@ -75,7 +75,22 @@ class LrtcEnvelope {
     );
     if (bytes.length < fixedHeaderLength) throw notAnEnvelope;
     for (var i = 0; i < magic.length; i++) {
-      if (bytes[i] != magic[i]) throw notAnEnvelope;
+      if (bytes[i] != magic[i]) {
+        // A wrong magic is usually a mistake worth diagnosing precisely: a
+        // plaintext .tflite reaching the loader means the asset was bundled
+        // without encryption — the security failure already happened at
+        // build time, so name it instead of a generic format error.
+        if (_looksLikeTflite(bytes)) {
+          throw const InvalidFormatException(
+            'This is a plaintext TensorFlow Lite model (TFL3), not an LRTC '
+            'file — it was never encrypted. If it came from your app '
+            "bundle, the asset's pubspec entry is missing the litert_crypto "
+            'transformer; any release built this way ships the model in '
+            'the clear.',
+          );
+        }
+        throw notAnEnvelope;
+      }
     }
     final version = bytes[4];
     if (version != currentVersion) {
@@ -104,6 +119,17 @@ class LrtcEnvelope {
       iv: Uint8List.sublistView(bytes, labelEnd, headerLength),
       sealed: Uint8List.sublistView(bytes, headerLength),
     );
+  }
+
+  /// TFLite flatbuffers carry the file identifier "TFL3" at bytes 4–7
+  /// (after the 4-byte root offset).
+  static bool _looksLikeTflite(Uint8List bytes) {
+    const tfl3 = [0x54, 0x46, 0x4C, 0x33]; // "TFL3"
+    if (bytes.length < 8) return false;
+    for (var i = 0; i < tfl3.length; i++) {
+      if (bytes[4 + i] != tfl3[i]) return false;
+    }
+    return true;
   }
 
   /// Builds the header bytes for the given values.

@@ -1,10 +1,17 @@
 name: litert_crypto_example
-description: Runnable demo for litert_crypto — decrypts a bundled encrypted asset in memory.
+description: Runnable demo for litert_crypto — the build encrypts the model asset via the transformer; the app decrypts it in memory.
 publish_to: "none"
 version: 0.1.0
 
 environment:
   sdk: ^3.8.0
+
+# Model-encryption config — no separate litert_crypto.yaml needed; this
+# section is all the transformer setup there is. (A dedicated config file
+# would take precedence over it if both existed.)
+litert_crypto:
+  key_file: .secrets/model_master.key
+  key_parts_out: lib/model_master_key.dart
 
 dependencies:
   flutter:
@@ -20,5 +27,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    # Only the encrypted output ships; the plaintext source stays in models_src/.
-    - assets/tflite_model/demo_model.bin.enc
+    # The plaintext model is registered, but the transformer encrypts it as
+    # `flutter build` copies it into the bundle — only ciphertext ships.
+    - path: assets/tflite_model/demo_model.bin
+      transformers:
+        - package: litert_crypto

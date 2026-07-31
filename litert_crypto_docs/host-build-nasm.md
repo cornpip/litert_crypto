@@ -1,11 +1,12 @@
 # The Windows host build needs NASM — analysis and plan
 
-Running the CLI (`dart run litert_crypto ...`) or `flutter test` on a
-**Windows x64 host** fails without NASM installed. This document records why,
+Running the CLI (`dart run litert_crypto ...`), `flutter test`, or — since
+0.3.0 — a `flutter build` with the asset transformer registered, on a
+**Windows x64 host**, fails without NASM installed. This document records why,
 what was verified in the dependency's source, which fixes are structurally
 possible, and the order we intend to pursue them. For the one-line user-facing
 answer (`winget install nasm`), see the
-[README](../README.md#windows-the-first-run-may-ask-for-nasm).
+[README](../README.md#the-native-crypto-engine-boringssl).
 
 ## Why it happens
 
@@ -13,9 +14,11 @@ litert_crypto has no native code of its own; AES-256-GCM comes from BoringSSL
 through `package:webcrypto` (see [design.md](design.md)). webcrypto ships
 BoringSSL as source and compiles it with a Dart **build hook**
 (`hook/build.dart`), which runs whenever a Dart program in the dependency
-graph is built for a host target — `dart run`, `flutter test` on the host VM.
-App builds are untouched: Gradle/NDK and Xcode assemble BoringSSL's assembly
-themselves, so Android/iOS/macOS binaries never need NASM.
+graph is built for a host target — `dart run`, `flutter test` on the host VM,
+and the transformer subprocess `flutter build` spawns per encrypted asset.
+The app binaries themselves are untouched: Gradle/NDK and Xcode assemble
+BoringSSL's assembly for the target, so Android/iOS/macOS builds never need
+NASM for what ships.
 
 On Windows the hook's CMake build requires NASM unconditionally:
 
@@ -43,10 +46,11 @@ cost is speed: hardware AES/GHASH is reached through the assembly path, so
 AES-GCM can be several times slower without it.
 
 For this package that cost lands nowhere that matters. The host build only
-serves the **build-time CLI** (encrypt a model once) and tests; app runtime
-decryption uses the NDK/Xcode-built library and keeps its assembly fast path
-regardless. A NASM-less fallback to `OPENSSL_NO_ASM` on the host would be
-strictly better than failing the build.
+serves **build-time encryption** (the CLI and the asset transformer — a model
+is encrypted once per change) and tests; app runtime decryption uses the
+NDK/Xcode-built library and keeps its assembly fast path regardless. A
+NASM-less fallback to `OPENSSL_NO_ASM` on the host would be strictly better
+than failing the build.
 
 ## What the package cannot do
 
@@ -65,7 +69,7 @@ strictly better than failing the build.
 
 ## The plan
 
-1. **Document (done).** The README's Windows note in the CLI section walks
+1. **Document (done).** The README's Windows note in the usage section walks
    error → cause → fix (`No CMAKE_ASM_NASM_COMPILER could be found` →
    BoringSSL's Windows build assembles with NASM → `winget install nasm`),
    and the CHANGELOG names the requirement; this file holds the depth.
