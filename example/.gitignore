@@ -44,7 +44,5 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# The demo key (.secrets/) is deliberately COMMITTED in this example: its XOR
-# parts are committed in lib/model_master_key.dart anyway, and the transformer
-# needs the key file on every `flutter build`, including a fresh clone.
-# A real app must gitignore it — `dart run litert_crypto keygen` says so.
+# litert_crypto demo key — regenerate with: dart run litert_crypto keygen
+.secrets/

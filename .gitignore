@@ -32,9 +32,5 @@ migrate_working_dir/
 
 # litert_crypto keys — never commit
 .secrets/
-# ...except the example's demo key: its XOR parts are committed in
-# example/lib/model_master_key.dart anyway, and the asset transformer
-# needs the key file on every build, including a fresh clone.
-!example/.secrets/
 
 .claude/

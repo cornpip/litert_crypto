@@ -1,6 +1,6 @@
 # litert_crypto
 
-Encrypt and load **LiteRT (TensorFlow Lite / TFLite)** models — build-time encryption (a Flutter asset transformer, plus a CLI) and an in-memory decryption loader with pluggable key providers.
+Encrypt and load **LiteRT (TensorFlow Lite / TFLite)** models — build-time encryption (a CLI, plus a Flutter asset transformer) and an in-memory decryption loader with pluggable key providers.
 
 > **This package does not guarantee protection.** It provides encryption tooling and a key
 > injection point (`KeyProvider`); the actual protection strength is determined by how you
@@ -17,8 +17,8 @@ model never touches the disk.
 flutter pub add litert_crypto
 ```
 
-**1.** One `pubspec.yaml` addition is the whole wiring — the config section,
-plus the transformer on your models folder:
+**1.** Add a `litert_crypto:` section and the `.enc` assets to your
+`pubspec.yaml`:
 
 ```yaml
 litert_crypto:
@@ -27,31 +27,32 @@ litert_crypto:
   # key ships inside the app (EmbeddedKeyProvider); remove this line if the
   # key comes from a server, license, or secure storage.
   key_parts_out: your_path/model_master_key.dart
+  models:
+    - src: models_src/yolo.tflite
+      out: assets/tflite_model/yolo.tflite.enc
 
 flutter:
   assets:
-    - path: assets/tflite_model/
-      transformers:
-        - package: litert_crypto
+    # Only the encrypted outputs ship — keep the plaintext sources
+    # (models_src/) out of your assets.
+    - assets/tflite_model/yolo.tflite.enc
 ```
 
-**2.** Generate the key:
+**2.** Generate the key and encrypt:
 
 ```bash
 dart run litert_crypto keygen    # writes .secrets/model_master.key (gitignore it!)
-dart run litert_crypto keyparts  # generates the key source — only needed with key_parts_out
+dart run litert_crypto encrypt   # encrypts every listed model, (re)generates the key source
 ```
 
-**3.** Load at runtime — the same asset path, its contents now ciphertext:
+**3.** Load at runtime:
 
 ```dart
 import 'package:litert_crypto/litert_crypto.dart';
 
-// Before: Interpreter.fromAsset('assets/tflite_model/model.tflite')
+// Before: Interpreter.fromAsset('assets/tflite_model/yolo.tflite')
 final interpreter = await EncryptedModel.fromAsset(
-  // Same path as before — the transformer swapped the asset's contents for
-  // ciphertext at build time.
-  'assets/tflite_model/model.tflite',
+  'assets/tflite_model/yolo.tflite.enc',
   keyProvider: buildModelKeyProvider(),   // from the generated key_parts_out file
   build: Interpreter.fromBuffer,
 );
@@ -59,27 +60,10 @@ final interpreter = await EncryptedModel.fromAsset(
 // follows stays unchanged.
 ```
 
-That is the whole setup. `flutter build` (and `flutter run` / `flutter test`)
-now encrypts each model on its way into the bundle.
+That is the whole setup — rerun `dart run litert_crypto encrypt` whenever a
+model changes.
 
 ### Build-time details
-
-> **Every file directly inside the registered folder is encrypted.** A
-> `labels.txt` kept there would ship as unreadable ciphertext too — keep the
-> folder models-only, and put plaintext assets elsewhere. **Subfolders are
-> not picked up**; each subfolder needs its own entry.
-
-Single-file entries work the same way, and are where per-asset arguments go
-when the defaults don't fit:
-
-```yaml
-    - path: assets/tflite_model/yolo.tflite
-      transformers:
-        - package: litert_crypto
-          args: ['--label', 'yolo.tflite', '--key-id', '1']
-```
-
-The label defaults to the asset's own file name.
 
 The config section can live in a dedicated `litert_crypto.yaml` instead
 (`dart run litert_crypto init` writes an annotated one). Config discovery —
@@ -91,24 +75,39 @@ first match wins:
 3. `litert_crypto:` section in `pubspec.yaml`
 ```
 
-Building now needs the key file — `.secrets/model_master.key`.
+Each `models:` entry also takes `label:` (stored in the clear, defaults to
+the `out` file name) and `key_id:` (key rotation, below). For a one-off you
+can skip the config and pass `--key`, `--in`, and `--out` directly. A model
+your app downloads at runtime is encrypted the same way — load it with
+`EncryptedModel.fromFile`, same key.
 
-With `key_parts_out` set in the config, the transformer also verifies the
-generated key source still matches the key file, and fails the build with a
-`keyparts` hint when it drifted or was never generated — rotating a key and
-forgetting `keyparts` surfaces at build time, not as a decryption failure in
-the shipped app.
+#### Asset transformer — automatic, but with a known upstream issue
 
-#### Models outside the bundle
+Registering plaintext models with litert_crypto as their asset transformer
+makes `flutter build` encrypt them on their way into the bundle — no
+`encrypt` step, and the assets keep their names:
 
-To use an encrypted model outside the pubspec transformer pipeline:
-
-```bash
-dart run litert_crypto encrypt --key .secrets/model_master.key \
-  --in yolo_v2.tflite --out yolo_v2.tflite.enc
+```yaml
+flutter:
+  assets:
+    - path: assets/tflite_model/
+      transformers:
+        - package: litert_crypto
 ```
 
-Load it with EncryptedModel.fromFile — same key.
+> **Not the recommended default for now.** Multi-asset transformer builds
+> can crash on Windows — the parallel per-asset `dart run` processes race
+> on native-asset staging, an upstream bug filed as
+> [dart-lang/sdk#63933](https://github.com/dart-lang/sdk/issues/63933).
+> Until it is fixed, prefer the CLI flow above.
+
+Transformer notes, for when you do use it: every file directly inside a
+registered folder is encrypted (keep the folder models-only; subfolders need
+their own entry); per-asset `args: ['--label', ..., '--key-id', ...]`
+replace the config's per-model fields; the build needs the key file present
+(CI: provision it from a secret); and with `key_parts_out` set, a build
+whose generated key parts are stale or missing fails with a `keyparts` hint
+(`dart run litert_crypto keyparts` regenerates them standalone).
 
 #### The native crypto engine (BoringSSL)
 
@@ -132,8 +131,9 @@ in one go.
 
 #### `key_parts_out` — generated key source for `EmbeddedKeyProvider`
 
-With `key_parts_out` set in the config, `dart run litert_crypto keyparts` writes Dart
-source that rebuilds the current key from XOR parts.
+With `key_parts_out` set in the config, `encrypt` (re)generates Dart source
+that rebuilds the current key from XOR parts — `dart run litert_crypto
+keyparts` does the same standalone.
 
 ```dart
 // GENERATED by the litert_crypto CLI (`keyparts` / `encrypt`) — do not edit by hand.

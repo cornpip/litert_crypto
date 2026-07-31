@@ -1,16 +1,10 @@
-// litert_crypto runnable example — transformer mode.
+// litert_crypto runnable example.
 //
-// assets/tflite_model/demo_model.bin is registered as a plaintext asset, but
-// pubspec.yaml lists litert_crypto as its transformer, so `flutter build`
-// encrypts it on the way into the bundle: only ciphertext ships. The one-time
-// setup was:
-//   dart run litert_crypto keygen     # wrote .secrets/model_master.key
-//   dart run litert_crypto keyparts   # generated lib/model_master_key.dart
-//
-// (This demo commits its key file — its XOR parts are committed in
-// lib/model_master_key.dart anyway, so the demo hides nothing, and committing
-// it keeps the example buildable from a fresh clone. A real app gitignores
-// the key.)
+// The committed artifacts were produced by the package's own CLI, run from
+// this directory (config in the `litert_crypto:` section of pubspec.yaml):
+//   dart run litert_crypto keygen    # wrote .secrets/model_master.key (not committed)
+//   dart run litert_crypto encrypt   # wrote assets/tflite_model/demo_model.bin.enc
+//                                    # and generated lib/model_master_key.dart
 //
 // demo_model.bin stands in for a real .tflite — the codec encrypts any file,
 // and this app proves the round trip: only ciphertext is bundled as an asset,
@@ -33,9 +27,7 @@ class FakeModel {
 
 Future<FakeModel> loadModel() {
   return EncryptedModel.fromAsset(
-    // The asset keeps its plaintext name — the transformer swapped its
-    // contents for LRTC ciphertext when the bundle was built.
-    'assets/tflite_model/demo_model.bin',
+    'assets/tflite_model/demo_model.bin.enc',
     // buildModelKeyProvider() comes from the generated lib/model_master_key.dart.
     // An embedded key is the weakest tier — pick the KeyProvider matching your
     // distribution model (see the KeyProvider table in the README).
@@ -68,7 +60,7 @@ class ExampleApp extends StatelessWidget {
               }
               return Text(
                 'Decrypted ${snapshot.data!.byteCount} bytes in memory —\n'
-                'the build bundled only ciphertext in this app.',
+                'only the .enc ciphertext is bundled in this app.',
                 textAlign: TextAlign.center,
               );
             },
