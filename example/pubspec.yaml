@@ -27,8 +27,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    # The plaintext model is registered, but the transformer encrypts it as
-    # `flutter build` copies it into the bundle — only ciphertext ships.
-    - path: assets/tflite_model/demo_model.bin
+    # Repro setup (repro/dll-race branch): the whole folder — 11 models →
+    # 11 parallel `dart run litert_crypto` processes during the build.
+    - path: assets/tflite_model/
       transformers:
         - package: litert_crypto
