@@ -17,6 +17,23 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
+# --- Repro for google/webcrypto.dart#325: absolute Windows `localPath` is
+# --- parsed as a URI ("Cannot extract a file path from a d URI").
+# --- On Windows run:  dart run litert_crypto encrypt   (any hook-triggering
+# --- command works; the dll path does not need to exist — parsing fails
+# --- before the existence check). Pinned to the PR head at the time tested.
+dependency_overrides:
+  webcrypto:
+    git:
+      url: https://github.com/mosuem/webcrypto.dart
+      ref: b2127e3afe74c00d22b4a84e7bc7ed785ae39a37
+
+hooks:
+  user_defines:
+    webcrypto:
+      buildMode: local
+      localPath: D:\any\path\webcrypto.dll
+
 # Model-encryption config — no separate litert_crypto.yaml needed.
 # Run `dart run litert_crypto encrypt` after changing a model.
 litert_crypto:
