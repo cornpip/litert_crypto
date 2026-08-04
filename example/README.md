@@ -1,5 +1,11 @@
 # litert_crypto example
 
+> **Repro branch for [google/webcrypto.dart#325](https://github.com/google/webcrypto.dart/pull/325)** —
+> the pubspec pins the PR and sets an absolute Windows `localPath`, so
+> hook-triggering commands fail by design
+> (*"Cannot extract a file path from a d URI"*, see
+> [the PR comment](https://github.com/google/webcrypto.dart/pull/325#issuecomment-5178523034)).
+
 CLI round trip: `models_src/demo_model.bin` (a stand-in for a real
 `.tflite`) is encrypted by the CLI into the committed
 `assets/tflite_model/demo_model.bin.enc`, and the app decrypts it
